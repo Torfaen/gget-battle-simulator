@@ -6,7 +6,6 @@
 | --- | --- | --- |
 | 桌面手操、MuMu 续战、与实机对照 | [`original_battle_reuse/battle_ui.py`](../original_battle_reuse/battle_ui.py) | 独立 ARM64 进程调用原版 IL2CPP 战斗服务，Python 窗口提交指令并显示事件 |
 | 命令行复现部署、交战和阶段切换 | [`original_battle_reuse/kernel_runner.py`](../original_battle_reuse/kernel_runner.py) | 用固定的关卡、编队和脚本驱动同一套原版战斗服务 |
-| 无头回放、批量模拟、策略训练 | [`battle_headless/`](../battle_headless/) | Python 规则模型和逐项移植的原版规则，默认 CLI 使用近似模型 |
 
 准备 Windows 或 MuMu 运行环境和关卡数据后，从仓库根目录启动。依赖安装与资源准备步骤见 [原版战斗运行时说明](../original_battle_reuse/README.md)。
 
@@ -19,7 +18,7 @@ python original_battle_reuse/kernel_runner.py interactive --stage 90510005
 
 ## 原版后端与手操窗口
 
-1. 关卡准备脚本生成主表、关卡对象和资源索引。编队模块把窗口编队转换为原版用户表，并检查机体形态、装备和出击限制。[`prepare_stage.py`](../original_battle_reuse/prepare_stage.py) · [`formation.py`](../original_battle_reuse/formation.py)
+1. 关卡准备脚本生成主表、关卡对象和资源索引。编队模块把窗口编队转换为原版用户表，计算驾驶员、支援者与地形属性，并检查机体形态、装备和出击限制。[`prepare_stage.py`](../original_battle_reuse/prepare_stage.py) · [`formation.py`](../original_battle_reuse/formation.py) · [`formation_rules.py`](../original_battle_reuse/formation_rules.py)
 2. 命令行运行器准备本局输入。Android 启动器查找 MuMu 的 ADB 连接，校验共用运行文件，并在隔离目录启动客体。客体初始化 IL2CPP、主表和关卡。[`kernel_runner.py`](../original_battle_reuse/kernel_runner.py) · [`android_bridge.py`](../original_battle_reuse/android_bridge.py) · [`android_entry.c`](../original_battle_reuse/android_entry.c)
 3. 窗口通过标准输入逐行发送指令。常用命令包括 `state` 查看盘面、`inspect <单位号>` 查看行动选项、`m <单位号> <x> <z>` 移动、`s <单位号>` 待机、`pass` 结束回合和 `undo` 撤回。客体在标准输出发送制表符分隔的 `UI` 事件，`STATE` 和 `UNIT` 描述盘面，`READY` 表示可以接受下一次操作。[`android_interactive.c`](../original_battle_reuse/android_interactive.c)
 4. 手操指令驱动原版我方阶段。结束回合后，客体用原版阶段服务和 AI 推进自动阵营，窗口根据后端事件显示行动和受击应对。每局日志位于 `original_battle_reuse/artifacts/kernel/interactive/`，可查看 `original_phase_step`、`original_phase_combat` 和 `UI` 事件，排查行动顺序和状态变化。[`android_exchange.c`](../original_battle_reuse/android_exchange.c)
@@ -42,23 +41,12 @@ python original_battle_reuse/kernel_runner.py interactive --stage 90510005
 
 实机写盘的检查点提供战斗进度。窗口导入后，随机数由后端初始化，日志显示 `REUSE mumu_random_state local`。原生入口还支持配套的 `MuMuRandom.bin`，按回合、阶段和步号校验，恢复 AI、战斗、通用随机流和 Unity 随机状态。实机随机状态采集和跨端敌方行动逐步一致性仍待验证。对照时应先核对同一步的盘面和可行动状态，再用同一组手操指令比较敌方单位、目标、武器、移动终点及结算。
 
-## Python 无头模型
-
-[`BattleEnv`](../battle_headless/engine.py) 提供 `reset()`、`observe()`、`legal_actions()`、`step()` 和 `replay()`。常规流程是固定主表、场景和种子，从候选列表提交动作，再用回放比对状态。默认场景见 [`demo.json`](../battle_headless/demo.json)。同一主表须包含场景引用的机体及关联表。
-
-```powershell
-python -m battle_headless --master "路径/parsed_tables.json" --seed 37 --out outputs/battle_headless/demo_replay.json
-```
-
-`--master` 接受按表名索引的 JSON，字段使用提取后的原版列名。省略参数时，CLI 从外部数据目录读取 `investigations/20261016_update/parsed_tables.json`。原版标量 CLI 需要与其指纹匹配的 2.7.0 主表。训练环境通过 `battle_headless.rl` 提供动作掩码和回合推进，`battle_headless.gym_env` 提供可选的 Gymnasium 适配器。[`original.py`](../battle_headless/original.py) · [`rl.py`](../battle_headless/rl.py) · [`gym_env.py`](../battle_headless/gym_env.py)
-
 ## 开发验证
 
 ```powershell
-python -B -m unittest discover -s tests -v
 python -B -m unittest discover -s original_battle_reuse -v
 ```
 
 - 改动窗口、存档或客体协议时，先跑原版后端的 Python 回归，再走一遍窗口的开始战斗、操作、保存和读回。改动导入路径时，用开场、回合首步和回合中途的检查点覆盖各分支。
-- 改动 Python 规则时，固定主表版本、输入和种子，用对应模块的测试比对合法动作、状态变化和回放。移植原版规则时，同时记录对照的原生入口、输入、输出和适配器边界。合成演示覆盖基础回合、移动和武器流程。存档格式、几何和规则测试可在干净检出运行，带 `skip` 的编队用例需要外部数据和同版本主表。
-- 发布的文件包括源码、文档、合成样例和随代码运行的测试。实机检查点、账户编队、APK、解包资源和运行日志由 `GGET_BATTLE_DATA_DIR` 管理。目录结构见 [本地数据布局](../original_battle_reuse/README.md#本地数据布局)。
+- 编队回归使用同版本外部主表和部署输入。存档格式测试可以直接在干净检出运行。
+- 发布的文件包括源码、文档和随代码运行的测试。实机检查点、账户编队、APK、解包资源和运行日志由 `GGET_BATTLE_DATA_DIR` 管理。目录结构见 [本地数据布局](../original_battle_reuse/README.md#本地数据布局)。

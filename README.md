@@ -1,16 +1,6 @@
 # GGET 战斗模拟
 
-这个项目包含《SD 高达 G 世纪 永恒》的本地战斗模拟。桌面窗口通过独立 ARM64 进程调用原版战斗服务。Python 无头模型可用来开发规则、回放动作和训练策略，默认使用近似规则。
-
-## 运行合成演示
-
-从仓库根目录运行。演示使用 Python 3.10 或更新版本的标准库，以及仓库里的两份合成 JSON。
-
-```powershell
-python -B -m battle_headless --master examples/demo_master.json --scenario examples/demo_scenario.json --seed 37
-```
-
-用 `--seed` 固定随机序列，或用 `--out` 将回放写到指定的本地文件。需要使用游戏主表时，传入自己的 `--master` 和匹配的场景 JSON。
+这个项目包含《SD 高达 G 世纪 永恒》的本地战斗模拟。桌面窗口通过独立 ARM64 进程调用原版战斗服务，支持手动操作、战斗存档和 MuMu 续战。
 
 ## 启动手操窗口
 
@@ -26,11 +16,9 @@ python -B original_battle_reuse/battle_ui.py
 ## 开发与回归
 
 - 原版后端的桥接、战斗指令、存档和桌面 UI 位于 [`original_battle_reuse/`](original_battle_reuse/)。
-- 规则移植、无头回放及训练环境位于 [`battle_headless/`](battle_headless/)。
 - 启动入口、协议和实机验证记录见 [战斗模拟开发文档](docs/BATTLE_DEVELOPMENT.md)。
 
 ```powershell
-python -B -m unittest discover -s tests -q
 python -B -m unittest discover -s original_battle_reuse -q
 ```
 

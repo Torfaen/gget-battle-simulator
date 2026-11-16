@@ -4,10 +4,10 @@ from collections import Counter
 import hashlib
 import json
 from pathlib import Path
+import struct
 
 from prepare_stage import ANDROID, ARTIFACTS, MASTER_TABLES, pack_memory_database
 from battle_paths import OUTPUTS
-from battle_headless.account import guarded, raw
 from tools.analysis.analyze_runtime_metadata import Metadata
 
 LOCAL_USER_ID = 1
@@ -21,6 +21,38 @@ TABLE_NAMES = {
     'UserOptionParts': 'user_option_parts',
     'UserWeapon': 'user_weapon',
 }
+
+
+def xorshift(index, seed):
+    value = (index * 0x9e3779b1 + seed * 0x85ebca77) & 0xffffffff
+    value = (value ^ (value << 13)) & 0xffffffff
+    value ^= value >> 17
+    return (value ^ (value << 5)) & 0xffffffff
+
+
+def guarded(field, bits=32):
+    """Decode a captured GuardTypes value and verify its redundant copy."""
+    if bits not in (8, 16, 32, 64):
+        raise ValueError('Unsupported GuardTypes layout')
+    blob = bytes.fromhex(field['bytes'])
+    if not blob[0]:
+        return 0
+
+    def decode(offset, seed_offset):
+        seed = struct.unpack_from('<I', blob, seed_offset)[0]
+        plain = bytes(blob[offset + i] ^ ((xorshift(i // 4, seed) >> (8 * (i % 4))) & 255)
+                      for i in range(bits // 8))
+        return int.from_bytes(plain, 'little', signed=True)
+
+    outer = decode({8: 20, 16: 20, 32: 24, 64: 32}[bits], 4)
+    inner = decode({8: 17, 16: 18, 32: 20, 64: 24}[bits], 12)
+    if not blob[8] or inner != outer:
+        raise ValueError('GuardTypes verifier mismatch: stale or inconsistent snapshot')
+    return outer
+
+
+def raw(field, size=8, signed=True):
+    return int.from_bytes(bytes.fromhex(field['bytes'])[:size], 'little', signed=signed)
 
 
 def field(fields, name):

@@ -1,4 +1,3 @@
-# Native differential analysis only; ordinary scalar and sandbox use need no pip packages.
-unicorn==2.1.4
+# Optional IL2CPP method and metadata inspection.
 pyelftools==0.33
 capstone==5.0.9

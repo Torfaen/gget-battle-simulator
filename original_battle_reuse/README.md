@@ -27,9 +27,9 @@ python -m pip install --target "$env:GGET_BATTLE_DATA_DIR/original_battle_reuse/
 | `original_battle_reuse/artifacts/kernel/` | QEMU、内核、每局输入与日志 |
 | `original_battle_reuse/artifacts/battle_ui_assets/` 与 `original_battle_reuse/artifacts/idle_koma/` | 可选界面图片、地图与棋子 |
 | `original_battle_reuse/artifacts/battle_saves/` 与 `original_battle_reuse/artifacts/formation_saves/` | 窗口生成的存档和编队 |
-| `investigations/20261016_update/` | 兼容的 `parsed_tables.json`、本地化和资源索引，用于无头模型及资源准备 |
+| `investigations/20261016_update/` | 关卡和资源准备所需的 `parsed_tables.json`、本地化和资源索引 |
 | `.resource_cache/` | 原始备份的本地路径索引、metadata 与提取工具所需的其他本地输入 |
-| `outputs/battle_headless/` | 本地编队捕获、回放、MuMu 检查点副本和可选截图 |
+| `outputs/battle_headless/` | 已有本地数据目录中的编队捕获、关卡描述、MuMu 检查点副本和可选截图 |
 
 原版依赖需要从自己的数据准备。优先使用已验证的运行目录。下面的准备工具适用于已经具备对应版本本地备份和输入的情况。
 

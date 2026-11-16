@@ -14,12 +14,9 @@ from tempfile import NamedTemporaryFile
 from prepare_stage import ARTIFACTS, BASE_STAGE_DIR, STAGE, UPDATED_MASTER, pack_memory_database, stage_directory
 from battle_paths import OUTPUTS
 from stage_catalog import INVASION_STAGE_TYPE, UPDATED_LANGUAGES
-from battle_headless.battle_power import RatingTrait, aggregate, round_up_double, stat_point
-from battle_headless.mechanics import character_stat
-from battle_headless.sortie import sortie_status
-from battle_headless.supporters import additional_parameter, leader_matches, leader_uses_or
-from battle_headless.terrain_capability import TERRAIN_CHANGE_TYPES, change_record, upgrade
-from battle_headless.weapon_corrections import truncdiv
+from formation_rules import (TERRAIN_CHANGE_TYPES, RatingTrait, additional_parameter, aggregate, change_record,
+                             character_stat, leader_matches, leader_uses_or, round_up_double, sortie_status,
+                             stat_point, truncdiv, upgrade)
 
 import msgpack
 

@@ -103,5 +103,9 @@ def prepare_demo_formation(directory=BASE_STAGE_DIR, master=BASE_MASTER):
 
 
 if __name__ == '__main__':
+    # This is also the preparation entry point used by the v0.1.2 launcher.
+    from update_release_art import update_release_art
+
+    update_release_art()
     created = prepare_demo_formation()
     print('Prepared the local demo deployment.' if created else 'Using the existing local deployment.')

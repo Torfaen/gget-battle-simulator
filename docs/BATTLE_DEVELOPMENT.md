@@ -43,6 +43,20 @@ python original_battle_reuse/kernel_runner.py interactive --stage 90510005
 
 ## 开发验证
 
+### 素材发布覆盖检查
+
+`tools/package_release_art.py` 会先用两个版本的发行主表和已准备关卡检查素材，再生成补丁 ZIP。检查覆盖可选驾驶员、支援人员、可选和关卡内机体的四方向棋子以及机体索引。原版资源索引中已有条目的素材必须可读取，缺图、空图或索引错误会阻止打包。原版资源索引缺项列在 `coverage-report.json`。
+
+```powershell
+python -B tools/package_release_art.py --runtime 'D:\release\battle-runtime-data.zip' `
+  --archive 'D:\release\battle-ui-assets.zip' --archive 'D:\release\gget-idle-koma-fix.zip' `
+  --art-dir 'D:\release\new-art' --tag '2026.11.16-art.1' --out 'D:\release\art-update'
+```
+
+`--archive` 按安装顺序加入现有的资源包和补丁。`--art-dir` 放待发布的新增图片，脚本在该目录生成棋子索引。把产出的 ZIP 和 `art-update.json` 上传到资源 Release 后，通过启动更新清单发布 `art-update.json`。v0.1.2 的启动器会在准备本地编队时校验并安装这些素材。
+
+### 战斗回归
+
 ```powershell
 python -B -m unittest discover -s original_battle_reuse -v
 ```

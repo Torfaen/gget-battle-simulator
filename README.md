@@ -2,11 +2,15 @@
 
 这个项目包含《SD 高达 G 世纪 永恒》的本地战斗模拟。桌面窗口通过独立 ARM64 进程调用原版战斗服务，支持手动操作、战斗存档和 MuMu 续战。
 
+**[图文使用说明](docs/USER_GUIDE.md)**
+
+![战斗模拟界面，显示机体站位和可移动范围](docs/images/user-guide/02-manual-battle.png)
+
 ## Windows 一键配置
 
 1. 在 Windows x64 电脑上从 [发布页](https://github.com/Torfaen/gget-battle-simulator/releases) 选择轻量包或全量包，解压后双击 `setup.cmd`。也可从代码仓库运行同一个脚本。
 2. 全量包自带界面、战斗和机体立绘资源。轻量包首次配置时会从公开资源 Release 自动下载这三份 ZIP，无需 GitHub 登录。脚本校验 SHA-256、配置 Python、Zig 和战斗后端，再生成本地测试编队。缺少系统工具时会通过 WinGet 引导安装，首次配置仍需联网下载缺少的依赖。
-3. 窗口打开后，选择「永恒之路 Hard」的「机动战士高达」，点击「开始战斗」。脚本会优先使用可连接的 MuMu，其他情况下会准备 Windows 独立运行的 QEMU 后端。
+3. 窗口打开后，选择「永恒之路 Hard」的「机动战士高达」，点击「出击」。脚本会优先使用可连接的 MuMu，其他情况下会准备 Windows 独立运行的 QEMU 后端。
 
 首次配置默认使用程序旁边的 `gget-battle-simulator-local`。从旧版本升级时，启动器会查找旁边已安装的数据目录。旧目录在其他位置，或同级有多个旧目录时，首次新版启动用 `-DataDir` 指到原 `setup.log` 所在目录，之后双击会沿用这个位置。配置日志也写在该目录的 `setup.log`。
 

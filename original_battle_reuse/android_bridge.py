@@ -1,6 +1,8 @@
 """Connect to a running MuMu device and launch the standalone battle process."""
 
+from itertools import chain
 import json
+import os
 import re
 import shlex
 import shutil
@@ -13,6 +15,7 @@ from android_runner import build
 from kernel_runner import prepare_battle_files, timeline_inputs
 
 DEVICE_ROOT = '/data/local/tmp/gget-battle-reuse'
+MUMU_INSTALL_ENV = 'GGET_MUMU_DIR'
 GAME_PACKAGE = 'com.bandainamcoent.gget_WW'
 MUMU_CLIENT_VERSION = '2.8.0'
 MUMU_RUNTIME_SHA = '92588f1b40791759be240affdf38317dd79995ad1c208e3891f889c508ebed0c'
@@ -40,8 +43,70 @@ def adb_shell(adb, script, *, timeout=20):
     return result.stdout.strip()
 
 
-def running_mumu_endpoints(adb):
-    manager = shutil.which('MuMuManager.exe') or Path(adb).with_name('MuMuManager.exe')
+def registered_mumu_directories():
+    if os.name != 'nt':
+        return
+    import winreg
+
+    key = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+    for hive, view in ((winreg.HKEY_CURRENT_USER, 0),
+                       (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY),
+                       (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY)):
+        access = winreg.KEY_READ | view
+        try:
+            with winreg.OpenKey(hive, key, 0, access) as uninstall:
+                for index in range(winreg.QueryInfoKey(uninstall)[0]):
+                    try:
+                        name = winreg.EnumKey(uninstall, index)
+                        with winreg.OpenKey(uninstall, name, 0, access) as entry:
+                            display_name, _ = winreg.QueryValueEx(entry, 'DisplayName')
+                            if isinstance(display_name, str) and 'mumu' in display_name.casefold():
+                                directory, _ = winreg.QueryValueEx(entry, 'InstallLocation')
+                                if isinstance(directory, str) and directory.strip():
+                                    path = Path(os.path.expandvars(directory.strip().strip('"')))
+                                    if path.is_absolute():
+                                        yield path
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+
+
+def mumu_tools_at(root):
+    folders = (root / 'nx_main', root, root / 'vmonitor/bin')
+    adb = next((str(folder / name) for folder in folders for name in ('adb.exe', 'adb_server.exe')
+                if (folder / name).is_file()), None)
+    manager = next((str(folder / 'MuMuManager.exe') for folder in folders
+                    if (folder / 'MuMuManager.exe').is_file()), None)
+    return adb, manager
+
+
+def locate_mumu_tools():
+    if override := os.environ.get(MUMU_INSTALL_ENV, '').strip():
+        root = Path(os.path.expandvars(override.strip('"'))).expanduser().resolve()
+        adb, manager = mumu_tools_at(root)
+        if not adb:
+            raise OSError(f'在 {MUMU_INSTALL_ENV} 指定的目录找不到 MuMu 自带的 ADB：{root}')
+        return adb, manager
+
+    adb, manager = shutil.which('adb'), shutil.which('MuMuManager.exe')
+    if adb and manager:
+        return adb, manager
+    known_folders = (Path(tool).parent for tool in (adb, manager) if tool)
+    for folder in chain(known_folders, registered_mumu_directories()):
+        bundled_adb, bundled_manager = mumu_tools_at(folder)
+        adb = adb or bundled_adb
+        manager = manager or bundled_manager
+        if adb and manager:
+            break
+    if not adb:
+        raise OSError(f'找不到 ADB，请设置 {MUMU_INSTALL_ENV} 为 MuMu 安装目录，或将 adb 加入 PATH。')
+    return adb, manager
+
+
+def running_mumu_endpoints(manager):
+    if not manager:
+        return []
     try:
         result = subprocess.run([str(manager), 'info', '--vmindex', 'all'], capture_output=True, text=True,
                                 encoding='utf-8-sig', errors='replace', check=True, timeout=8,
@@ -62,9 +127,7 @@ def running_mumu_endpoints(adb):
 
 
 def find_mumu():
-    adb = shutil.which('adb')
-    if not adb:
-        raise OSError('找不到 ADB，请检查 MuMu 或 Android 平台工具的安装。')
+    adb, manager = locate_mumu_tools()
 
     def ready(endpoint):
         device = [adb, '-s', endpoint]
@@ -87,7 +150,7 @@ def find_mumu():
         elif state == 'device' and (device := ready(endpoint)):
             return device
 
-    endpoints = running_mumu_endpoints(adb)
+    endpoints = running_mumu_endpoints(manager)
     for endpoint in endpoints:
         try:
             if endpoint in offline:

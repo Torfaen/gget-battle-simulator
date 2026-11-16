@@ -5,7 +5,7 @@
 ## 软件和依赖
 
 - Windows 与 Python 3.10+，包含 Tk 桌面组件。
-- MuMu 与 `adb`，用于模拟器内启动和续战。Windows 独立后端使用 QEMU，准备工具需可找到 7-Zip。
+- MuMu 用于模拟器内启动和续战。Windows 独立后端使用 QEMU，准备工具需可找到 7-Zip。
 - Python 原版后端依赖在 `requirements-native.txt`。需要从本地备份重新生成原生方法索引时，再安装 `requirements-battle-analysis.txt`。
 
 ```powershell
@@ -14,6 +14,17 @@ python -m pip install --target "$env:GGET_BATTLE_DATA_DIR/original_battle_reuse/
 ```
 
 执行前先设置 `GGET_BATTLE_DATA_DIR`。已有外部数据目录带 `zig_env` 时可复用其编译器。
+
+## MuMu ADB 连接
+
+启动 MuMu 并启用 ADB。程序先查找 `PATH` 中的工具以及它们所在的目录，再读取 Windows 安装记录，从 MuMu 的实际安装目录查找自带的 ADB 和 `MuMuManager.exe`。已有连接直接复用，需要重连时从管理器读取正在运行的实例及其 ADB 端口。
+
+未登记到 Windows 的安装可在启动窗口前指定 MuMu 安装目录，或直接指定包含 `adb.exe` 的文件夹。
+
+```powershell
+$env:GGET_MUMU_DIR = 'D:\模拟器\MuMu'
+python -B original_battle_reuse/battle_ui.py
+```
 
 ## 本地数据布局
 

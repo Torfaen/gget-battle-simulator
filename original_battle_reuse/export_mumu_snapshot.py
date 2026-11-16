@@ -7,13 +7,12 @@ import json
 from pathlib import Path
 import re
 import shlex
-import shutil
 import subprocess
 from tempfile import TemporaryDirectory, mkdtemp
 from uuid import uuid4
 from android_bridge import (DEVICE_ROOT, GAME_PACKAGE as PACKAGE,
                             MUMU_CLIENT_VERSION as CLIENT_VERSION, adb_shell, find_mumu, prepare_client_runtime,
-                            push, remove_session)
+                            locate_mumu_tools, push, remove_session)
 from android_runner import build
 from prepare_android import ANDROID
 from prepare_stage import stage_directory
@@ -162,9 +161,7 @@ def run_decoder(adb, checkpoint, working, *, read_progress=False):
 
 def export_snapshot(output_root, serial=None, *, raw_only=False, screenshot=False, read_progress=False):
     if serial is not None:
-        adb_path = shutil.which('adb')
-        if not adb_path:
-            raise OSError('找不到 adb。')
+        adb_path, _ = locate_mumu_tools()
         adb = [adb_path, '-s', serial]
     else:
         adb = find_mumu()

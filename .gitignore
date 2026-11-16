@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .env
 .env.*
+/.gget-data-dir
 
 # Local runtime, generated resources and captures.
 /artifacts/

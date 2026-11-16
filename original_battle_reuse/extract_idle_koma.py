@@ -8,6 +8,7 @@ from pathlib import Path
 from prepare_stage import (ARTIFACTS, BASE_STAGE_DIR, SOURCE, indexed_bundle, prepared_npc_ids,
                            prepared_stage_ids, resource_index, stage_tables)
 from stage_catalog import UPDATED_LANGUAGES, UPDATED_TABLES
+from prepare_demo_formation import DEMO_UNITS
 
 import UnityPy
 from UnityPy.enums import SpritePackingMode
@@ -150,8 +151,11 @@ def prepared_player_ids():
     import msgpack
     from prepare_player import TABLE_NAMES, table_schemas
 
+    player_database = BASE_STAGE_DIR / 'PlayerDatabase.bytes'
+    if not player_database.is_file():
+        return set()
     fields = [parameter['name'] for parameter in table_schemas()['UserUnit']]
-    with (BASE_STAGE_DIR / 'PlayerDatabase.bytes').open('rb') as source:
+    with player_database.open('rb') as source:
         header = msgpack.Unpacker(source, raw=False)
         offset, size = next(header)[TABLE_NAMES['UserUnit']]
         source.seek(header.tell() + offset)
@@ -165,7 +169,8 @@ def export_prepared_koma(out, fetch=False):
 
     tables = stage_tables()
     master, index, caches = load_sources(tables)
-    unit_ids = prepared_player_ids()
+    demo_ids = {unit for unit, _ in DEMO_UNITS}
+    unit_ids = demo_ids | prepared_player_ids()
     npcs = prepared_npc_ids(tables)
     mounted_ids = set()
     for row in tables['m_map_npc_unit']:
@@ -213,9 +218,20 @@ def export_prepared_koma(out, fetch=False):
                 missing.add(koma_id)
             print(f'{koma_id}: {exc}', flush=True)
     unit_index = {key: koma_id for key, koma_id in unit_index.items() if koma_id not in missing}
+    missing_demo = sorted(key for key in demo_ids if str(key) not in unit_index)
+    if missing_demo:
+        raise ValueError(f'Missing idle frames for the default formation: {missing_demo}')
+    add_idle_aliases(unit_index, master)
     index_path.write_text(json.dumps(unit_index, indent=2) + '\n', encoding='utf-8')
     (out / 'sfs_geometry.json').write_text(json.dumps(sfs_geometry, indent=2) + '\n', encoding='utf-8')
     print(f'Prepared idle frames for {len(unit_index)} master units.')
+
+
+def add_idle_aliases(unit_index, master):
+    available = set(unit_index.values())
+    for key, row in master.items():
+        if row['KomaResourceId'] in available:
+            unit_index.setdefault(str(key), row['KomaResourceId'])
 
 
 def export_idle_koma(log, out):

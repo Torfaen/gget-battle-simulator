@@ -3426,16 +3426,19 @@ class BattleWindow:
             self.pan_dragging = False
             self.canvas.configure(cursor='')
 
+    def idle_resource_id(self, master_id):
+        koma_id = self.idle_index.get(str(master_id))
+        if koma_id:
+            return koma_id
+        try:
+            return current_catalog().mecha_koma(master_id)
+        except (OSError, ValueError, KeyError):
+            return None
+
     def idle_image(self, unit, size, facing, *, board=False):
-        koma_id = self.idle_index.get(str(unit.master_id))
         if ImageTk is None:
             return None
-        assets = exported_mech_assets()
-        if not koma_id and assets:
-            try:
-                koma_id = current_catalog().mecha_koma(unit.master_id)
-            except (OSError, ValueError, KeyError):
-                pass
+        koma_id = self.idle_resource_id(unit.master_id)
         if not koma_id:
             return None
         acted = unit.manual and not unit.ready
@@ -3446,7 +3449,7 @@ class BattleWindow:
                 path = IDLE_DIR / koma_id / f'{facing}.png'
                 if facing != 'front' and not path.is_file():
                     path = path.with_name('front.png')
-                if not path.is_file() and assets:
+                if not path.is_file() and (assets := exported_mech_assets()):
                     path = assets / 'koma' / f'ogk_{koma_id}.png'
                 with Image.open(path) as source:
                     image = source.convert('RGBA')
@@ -3467,7 +3470,7 @@ class BattleWindow:
     def draw_mounted_idle(self, unit, facing, camera, center, cell):
         if ImageTk is None:
             return None
-        rider_id = self.idle_index.get(str(unit.master_id))
+        rider_id = self.idle_resource_id(unit.master_id)
         acted = unit.manual and not unit.ready
         # KomaHolder places the carrier 0.25 units behind the rider on local Z.
         lift = 0.25 + 0.30 * unit.sfs_floating

@@ -10,7 +10,26 @@ param(
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 $project = [IO.Path]::GetFullPath($PSScriptRoot)
-if (-not $DataDir) { $DataDir = "${project}-local" }
+$savedDataDir = Join-Path $project '.gget-data-dir'
+if (-not $DataDir) {
+    $legacy = "${project}-local"
+    $parent = Split-Path -Parent $project
+    $shared = Join-Path $parent 'gget-battle-simulator-local'
+    if (Test-Path -LiteralPath $savedDataDir -PathType Leaf) {
+        $saved = (Get-Content -LiteralPath $savedDataDir -Raw).Trim()
+        if ($saved -and (Test-Path -LiteralPath $saved -PathType Container)) { $DataDir = $saved }
+    }
+    if (-not $DataDir -and (Test-Path -LiteralPath $legacy -PathType Container)) { $DataDir = $legacy }
+    if (-not $DataDir -and (Test-Path -LiteralPath $shared -PathType Container)) { $DataDir = $shared }
+    if (-not $DataDir) {
+        $nearby = @(Get-ChildItem -LiteralPath $parent -Directory -Filter 'gget-battle-simulator*-local' |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'setup.log') -PathType Leaf })
+        if ($nearby.Count -eq 1) { $DataDir = $nearby[0].FullName }
+        elseif ($nearby.Count -gt 1) {
+            throw "Multiple previous data directories were found. Run setup.cmd -DataDir with one of: $($nearby.FullName -join ', ')"
+        } else { $DataDir = $shared }
+    }
+}
 $DataDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DataDir)
 if ($ResourceArchiveDir) {
     $ResourceArchiveDir = (Resolve-Path -LiteralPath $ResourceArchiveDir).ProviderPath
@@ -237,7 +256,17 @@ try {
         Invoke-Program $systemPython @('-m', 'venv', $venv) 'Creating the local Python environment'
     }
     Initialize-Tk $python
-    $requirements = Join-Path $project 'requirements-runtime.txt'
+    Install-ResourcePackages $python
+    Write-Step 'Checking for startup updates'
+    $runtime = $project
+    $resolved = & $python -B (Join-Path $project 'startup_update.py') $project $DataDir $log
+    if ($LASTEXITCODE -eq 0 -and $resolved) {
+        $runtime = $resolved | ConvertFrom-Json
+    } else {
+        Write-Step 'Update check failed; starting the bundled program'
+    }
+    $scripts = Join-Path $runtime 'original_battle_reuse'
+    $requirements = Join-Path $runtime 'requirements-runtime.txt'
     $requirementsHash = Get-Sha256 $requirements
     $dependencyMarker = Join-Path $venv 'requirements.sha256'
     if (-not (Test-Path -LiteralPath $dependencyMarker -PathType Leaf) -or
@@ -245,7 +274,6 @@ try {
         Invoke-Program $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--only-binary=:all:', '-r', $requirements) 'Installing Python dependencies'
         Set-Content -LiteralPath $dependencyMarker -Value $requirementsHash -Encoding ASCII
     }
-    Install-ResourcePackages $python
     $zigDir = Join-Path $artifacts 'zig_env'
     $zig = Join-Path $zigDir 'ziglang\zig.exe'
     if (-not (Test-Path -LiteralPath $zig -PathType Leaf)) {
@@ -256,17 +284,22 @@ try {
     $selected = $Backend
     if ($Backend -eq 'Auto') {
         try {
-            & $python -B -c "import sys; sys.path.insert(0, 'original_battle_reuse'); from android_bridge import find_mumu; find_mumu()" *> $null
+            & $python -B -c 'import sys; sys.path.insert(0, sys.argv[1]); from android_bridge import find_mumu; find_mumu()' $scripts *> $null
             $connected = $LASTEXITCODE -eq 0
         } catch {
             $connected = $false
         }
         $selected = if ($connected) { 'MuMu' } else { 'QEMU' }
     } elseif ($Backend -eq 'MuMu') {
-        Invoke-Program $python @('-B', '-c', "import sys; sys.path.insert(0, 'original_battle_reuse'); from android_bridge import find_mumu; find_mumu()") 'Checking the MuMu connection'
+        Invoke-Program $python @('-B', '-c', 'import sys; sys.path.insert(0, sys.argv[1]); from android_bridge import find_mumu; find_mumu()', $scripts) 'Checking the MuMu connection'
     }
     if ($selected -eq 'QEMU') { Initialize-Qemu $python }
     $env:GGET_BATTLE_BACKEND = $selected
+    try {
+        Set-Content -LiteralPath $savedDataDir -Value $DataDir -Encoding UTF8
+    } catch {
+        Write-Step "Could not remember the data directory: $($_.Exception.Message)"
+    }
     Write-Step "Setup complete. Backend: $selected"
 } catch {
     Write-Step "Setup failed: $($_.Exception.Message)"
@@ -277,5 +310,10 @@ try {
 }
 
 if (-not $NoLaunch) {
-    Invoke-Program $python @('-B', (Join-Path $scripts 'battle_ui.py')) 'Opening the battle simulator'
+    Push-Location -LiteralPath $runtime
+    try {
+        Invoke-Program $python @('-B', (Join-Path $scripts 'battle_ui.py')) 'Opening the battle simulator'
+    } finally {
+        Pop-Location
+    }
 }

@@ -1,0 +1,17 @@
+{
+  "damage": {
+    "power": 3300,
+    "attack": 734,
+    "defense": 632,
+    "character_attack": 0,
+    "character_defense": 0,
+    "weapon_efficiency": 1.0
+  },
+  "mobility": {
+    "attack_mobility": 735,
+    "character_attack": 0,
+    "target_mobility": 735,
+    "reaction": 0
+  },
+  "mp": 5
+}

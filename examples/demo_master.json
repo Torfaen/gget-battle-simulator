@@ -1,0 +1,23 @@
+{
+  "m_unit": [
+    {"Id": 1, "UnitStatusId": 1},
+    {"Id": 2, "UnitStatusId": 2}
+  ],
+  "m_unit_status": [
+    {"Id": 1, "Hp": 100, "En": 36, "Attack": 8, "Defense": 7, "Mobility": 7, "Movement": 3},
+    {"Id": 2, "Hp": 95, "En": 36, "Attack": 7, "Defense": 8, "Mobility": 6, "Movement": 3}
+  ],
+  "m_unit_weapon": [
+    {"UnitId": 1, "WeaponId": 1},
+    {"UnitId": 2, "WeaponId": 1}
+  ],
+  "m_weapon": [
+    {"Id": 1, "WeaponStatusId": 1, "MapWeaponRangeTypeIndex": 0}
+  ],
+  "m_weapon_status": [
+    {
+      "Id": 1, "Power": 27, "En": 4, "HitRate": 90, "CriticalRate": 10,
+      "RangeMin": 1, "RangeMax": 2, "MapWeaponShootingRange": 0, "MapWeaponEffectRange": 0
+    }
+  ]
+}

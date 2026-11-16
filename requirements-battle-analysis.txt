@@ -1,0 +1,4 @@
+# Native differential analysis only; ordinary scalar and sandbox use need no pip packages.
+unicorn==2.1.4
+pyelftools==0.33
+capstone==5.0.9

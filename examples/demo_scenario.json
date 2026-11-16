@@ -1,0 +1,10 @@
+{
+  "width": 6,
+  "height": 4,
+  "max_turns": 30,
+  "blocked": [[2, 2]],
+  "units": [
+    {"id": "ally", "unit_id": 1, "team": "player", "position": [0, 1]},
+    {"id": "enemy", "unit_id": 2, "team": "enemy", "position": [5, 1]}
+  ]
+}

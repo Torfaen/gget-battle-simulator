@@ -645,7 +645,7 @@ class BattleWindow:
         self.stage_category = tk.StringVar()
         self.stage_group = tk.StringVar()
         self.stage = tk.StringVar()
-        self.use_mumu = tk.BooleanVar(value=True)
+        self.use_mumu = tk.BooleanVar(value=os.environ.get('GGET_BATTLE_BACKEND', 'MuMu').lower() != 'qemu')
         self.weapon_label = tk.StringVar()
         self.forecast_label = tk.StringVar(value='选择武装后查看预判')
         self.skill_label = tk.StringVar()

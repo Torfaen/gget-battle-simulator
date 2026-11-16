@@ -1,5 +1,4 @@
-msgpack==1.1.1
+-r requirements-runtime.txt
 cryptography==46.0.3
-Pillow>=10
 UnityPy>=1.24
 numpy>=1.24,<3

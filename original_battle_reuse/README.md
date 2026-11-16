@@ -1,12 +1,14 @@
 # 原版后端运行指南
 
+新电脑可从仓库根目录运行 `setup.cmd`，自动下载资源、配置运行环境并创建本地测试编队。参数与首次验证步骤见 [一键配置](../README.md#windows-一键配置)。
+
 桌面窗口和命令行运行器在独立 ARM64 进程内加载原版 IL2CPP。普通窗口战斗和命令行回归使用固定的 2.7.0 运行文件。MuMu 检查点续战也需要已准备好的 2.7.0 基础运行目录、关卡和部署输入，负责恢复战斗的客体进程使用从 MuMu 安装包提取并校验过的 2.8.0 运行文件。
 
 ## 软件和依赖
 
 - Windows 与 Python 3.10+，包含 Tk 桌面组件。
 - MuMu 用于模拟器内启动和续战。Windows 独立后端使用 QEMU，准备工具需可找到 7-Zip。
-- Python 原版后端依赖在 `requirements-native.txt`。需要从本地备份重新生成原生方法索引时，再安装 `requirements-battle-analysis.txt`。
+- 窗口和已准备关卡使用 `requirements-runtime.txt`。需要补提取资源时使用 `requirements-native.txt`，需要重新生成原生方法索引时使用 `requirements-battle-analysis.txt`。
 
 ```powershell
 python -m pip install -r requirements-native.txt

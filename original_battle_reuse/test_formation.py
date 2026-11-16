@@ -8,8 +8,9 @@ from prepare_stage import ARTIFACTS, BASE_STAGE_DIR
 if not all((BASE_STAGE_DIR / name).is_file() for name in ('master_database.bytes', 'PlayerDatabase.bytes')):
     raise unittest.SkipTest('Requires the original local deployment fixtures')
 
-from formation import (catalog_for, default_team, load_sortie, load_team,
+from formation import (BASE_MASTER, catalog_for, default_team, load_sortie, load_team,
                        master_for_stage, packed_tables, save_team, team_preview, validation_errors, write_player_inputs)
+from prepare_demo_formation import prepare_demo_formation
 from stage_catalog import StageChoice
 
 
@@ -25,7 +26,9 @@ class FormationTests(unittest.TestCase):
         import msgpack
 
         member = self.team[1].members[2]
-        self.assertEqual(member.unit, 1080000100)
+        member.unit, member.sp, member.ssp, member.op, member.weapons = 1080000100, False, False, 0, {}
+        member.level = min(member.level, self.catalog.unit_max_level(member.unit, False))
+        member.ssp_cores = None
         self.assertEqual(self.catalog.sortie_form(member, self.air), 1080000200)
         self.assertEqual(self.catalog.sortie_form(member, self.space), member.unit)
         for force in self.team:
@@ -44,12 +47,28 @@ class FormationTests(unittest.TestCase):
 
     def test_space_rechecks_op_terrain(self):
         member = self.team[0].members[0]
-        member.unit, member.level, member.weapons = 1001001200, 70, {}
+        member.unit, member.sp, member.ssp, member.op, member.weapons = 1001001200, False, False, 0, {}
+        member.level = min(70, self.catalog.unit_max_level(member.unit, False))
+        member.ssp_cores = None
         self.assertIsNone(self.catalog.sortie_form(member, self.space))
         self.assertTrue(any(error[:2] == (1, 1) for error in validation_errors(self.team, self.catalog, self.space)))
         member.op = 400084
         self.assertEqual(self.catalog.sortie_form(member, self.space), member.unit)
-        self.assertFalse(validation_errors(self.team, self.catalog, self.space))
+        self.assertFalse(any(error[:2] == (1, 1) for error in validation_errors(self.team, self.catalog, self.space)))
+
+    def test_demo_deployment_uses_local_instances_and_preserves_existing_files(self):
+        import msgpack
+
+        with TemporaryDirectory(dir=ARTIFACTS) as scratch:
+            directory = Path(scratch)
+            self.assertTrue(prepare_demo_formation(directory, BASE_MASTER))
+            files = {entry.name: entry.read_bytes() for entry in directory.iterdir()}
+            database = {name: msgpack.unpackb(payload, raw=False)
+                        for name, payload in packed_tables(directory / 'PlayerDatabase.bytes')}
+            self.assertEqual([row[1] for row in database['user_unit']], list(range(1001, 1011)))
+            self.assertEqual([row[1] for row in database['user_supporter']], [2001, 2002])
+            self.assertFalse(prepare_demo_formation(directory, BASE_MASTER))
+            self.assertEqual({entry.name: entry.read_bytes() for entry in directory.iterdir()}, files)
 
     def test_team_round_trip_and_invalid_format(self):
         with TemporaryDirectory(dir=ARTIFACTS) as scratch:

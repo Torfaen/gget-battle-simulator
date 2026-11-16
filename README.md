@@ -5,7 +5,7 @@
 ## Windows 一键配置
 
 1. 在 Windows x64 电脑上从 [发布页](https://github.com/Torfaen/gget-battle-simulator/releases) 选择轻量包或全量包，解压后双击 `setup.cmd`。也可从代码仓库运行同一个脚本。
-2. 全量包自带资源，轻量包首次配置时需要有权访问私有资源仓库的 GitHub 账号。脚本校验两份资源包，配置 Python、Zig 和战斗后端，再生成本地测试编队。缺少系统工具时会通过 WinGet 引导安装，首次配置仍需联网下载缺少的依赖。
+2. 全量包自带界面、战斗和机体立绘资源。轻量包首次配置时会从公开资源 Release 自动下载这三份 ZIP，无需 GitHub 登录。脚本校验 SHA-256、配置 Python、Zig 和战斗后端，再生成本地测试编队。缺少系统工具时会通过 WinGet 引导安装，首次配置仍需联网下载缺少的依赖。
 3. 窗口打开后，选择「永恒之路 Hard」的「机动战士高达」，点击「开始战斗」。脚本会优先使用可连接的 MuMu，其他情况下会准备 Windows 独立运行的 QEMU 后端。
 
 数据默认保存在代码目录旁边的 `<目录名>-local`，配置日志为其中的 `setup.log`。有现成的资源 ZIP 时，可以指定下载目录。资源包和校验值见 [资源发布页](https://github.com/Torfaen/gget-battle-simulator-resources/releases/tag/2026.11.16)。

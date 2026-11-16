@@ -212,11 +212,12 @@ class FormationEditor(tk.Frame):
 
     def unit_picture(self, identifier):
         unit = self.catalog.units.get(identifier)
-        if unit and self.portrait_directory:
-            path = self.portrait_directory / f'ub_{unit[3]}.png'
-            if path.is_file():
-                return path
         if unit:
+            for directory in (self.portrait_directory, PILOT_ASSETS / 'unit_portraits'):
+                if directory is not None:
+                    path = directory / f'ub_{unit[3]}.png'
+                    if path.is_file():
+                        return path
             path = ARTIFACTS / 'idle_koma' / unit[4] / 'front.png'
             if path.is_file():
                 return path

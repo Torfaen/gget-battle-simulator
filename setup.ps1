@@ -31,6 +31,7 @@ $releaseTag = '2026.11.16'
 $resourcePackages = [ordered]@{
     'battle-ui-assets.zip' = 'a3f112b221d3caa2128d30d318aec960a8c189640b448b6c3ef9aa0c35a79d40'
     'battle-runtime-data.zip' = '9048c2cf0b98caceb5e4bf110c2f4a4bf93eb75ea03cc4df25f952292dc0286f'
+    'gget-unit-portraits.zip' = 'df506d98e0e58e2ac6abbb517a2f03b17b13e912ed68e0a5953606112fd73c93'
 }
 
 function Write-Step([string]$Message) {
@@ -115,28 +116,32 @@ function Test-FileHash([string]$Path, [string]$Sha256) {
     return (Test-Path -LiteralPath $Path -PathType Leaf) -and (Get-Sha256 $Path) -eq $Sha256
 }
 
-function Get-GitHubCli {
-    $candidates = @(
-        (Join-Path $env:ProgramFiles 'GitHub CLI\gh.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\GitHub CLI\gh.exe')
-    )
-    $gh = Find-Executable 'gh.exe' $candidates
-    if (-not $gh) {
-        Install-WinGetPackage 'GitHub.cli'
-        $gh = Find-Executable 'gh.exe' $candidates
+function Get-ResourceArchive([string]$Python, [string]$Name) {
+    $bundled = Join-Path $project 'resource-packages'
+    foreach ($directory in @($ResourceArchiveDir, $bundled)) {
+        if (-not $directory) { continue }
+        $path = Join-Path $directory $Name
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            if (-not (Test-FileHash $path $resourcePackages[$Name])) {
+                throw "Resource archive SHA-256 mismatch: $path"
+            }
+            Write-Step "Using local archive $Name"
+            return $path
+        }
     }
-    if (-not $gh) { throw 'GitHub CLI is installed but gh.exe could not be located.' }
-    try {
-        & $gh auth status --hostname github.com *> $null
-        $authorized = $LASTEXITCODE -eq 0
-    } catch {
-        $authorized = $false
+    $cache = Join-Path $DataDir "packages\$releaseTag"
+    $path = Join-Path $cache $Name
+    if (Test-FileHash $path $resourcePackages[$Name]) { return $path }
+    $null = New-Item -Path $cache -ItemType Directory -Force
+    $url = "https://github.com/$releaseRepo/releases/download/$releaseTag/$Name"
+    $helper = Join-Path $project 'setup_resources.py'
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Write-Step "Downloading $Name (attempt $attempt of 3)"
+        & $Python -B $helper download $url $path | Out-Host
+        if ($LASTEXITCODE -eq 0 -and (Test-FileHash $path $resourcePackages[$Name])) { return $path }
+        if ($attempt -lt 3) { Start-Sleep -Seconds $attempt }
     }
-    if (-not $authorized) {
-        Write-Step 'Open the GitHub login link and authorize an account with access to the private resource repository.'
-        Invoke-Program $gh @('auth', 'login', '--hostname', 'github.com', '--web') 'Signing in to GitHub'
-    }
-    return $gh
+    throw "Could not download a verified $Name from $url. Check your connection and rerun setup."
 }
 
 function Install-ResourcePackages([string]$Python) {
@@ -146,45 +151,25 @@ function Install-ResourcePackages([string]$Python) {
     if ((Test-Path -LiteralPath $installed -PathType Leaf) -and
         -not ($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $artifacts $_)) })) {
         Write-Step "Using installed resource release $releaseTag"
+    } else {
+        foreach ($name in @('battle-ui-assets.zip', 'battle-runtime-data.zip')) {
+            $path = Get-ResourceArchive $Python $name
+            Invoke-Program $Python @('-B', '-m', 'zipfile', '-e', $path, $DataDir) "Extracting $name"
+        }
+        Set-Content -LiteralPath $installed -Value $releaseTag -Encoding ASCII
+    }
+    $name = 'gget-unit-portraits.zip'
+    $portraitDir = Join-Path $artifacts 'battle_ui_assets\unit_portraits'
+    $portraitMarker = Join-Path $portraitDir 'archive.sha256'
+    if ((Test-Path -LiteralPath $portraitMarker -PathType Leaf) -and
+        (Test-Path -Path (Join-Path $portraitDir 'ub_*.png') -PathType Leaf) -and
+        (Get-Content -LiteralPath $portraitMarker -Raw).Trim() -eq $resourcePackages[$name]) {
+        Write-Step 'Using the installed unit portraits'
         return
     }
-    $bundled = Join-Path $project 'resource-packages'
-    if (-not $ResourceArchiveDir -and
-        -not ($resourcePackages.Keys | Where-Object {
-            -not (Test-Path -LiteralPath (Join-Path $bundled $_) -PathType Leaf)
-        })) {
-        $ResourceArchiveDir = $bundled
-        Write-Step 'Using the bundled resource archives'
-    }
-    $cache = Join-Path $DataDir "packages\$releaseTag"
-    $paths = @{}
-    $gh = $null
-    foreach ($name in $resourcePackages.Keys) {
-        $path = Join-Path $cache $name
-        if ($ResourceArchiveDir) {
-            $path = Join-Path $ResourceArchiveDir $name
-            if (-not (Test-FileHash $path $resourcePackages[$name])) {
-                throw "Missing archive or SHA-256 mismatch: $path"
-            }
-        } elseif (-not (Test-FileHash $path $resourcePackages[$name])) {
-            if (-not $gh) { $gh = Get-GitHubCli }
-            $null = New-Item -Path $cache -ItemType Directory -Force
-            for ($attempt = 1; $attempt -le 3; $attempt++) {
-                Write-Step "Downloading $name (attempt $attempt of 3)"
-                & $gh release download $releaseTag --repo $releaseRepo --pattern $name --dir $cache --clobber
-                if ($LASTEXITCODE -eq 0 -and (Test-FileHash $path $resourcePackages[$name])) { break }
-                if ($attempt -eq 3) {
-                    throw "Could not download a verified $name. Check that the signed-in account can access $releaseRepo."
-                }
-                Start-Sleep -Seconds $attempt
-            }
-        }
-        $paths[$name] = $path
-    }
-    foreach ($name in $resourcePackages.Keys) {
-        Invoke-Program $Python @('-B', '-m', 'zipfile', '-e', $paths[$name], $DataDir) "Extracting $name"
-    }
-    Set-Content -LiteralPath $installed -Value $releaseTag -Encoding ASCII
+    $path = Get-ResourceArchive $Python $name
+    Invoke-Program $Python @('-B', (Join-Path $project 'setup_resources.py'), 'portraits', $path, $portraitDir) "Extracting $name"
+    Set-Content -LiteralPath $portraitMarker -Value $resourcePackages[$name] -Encoding ASCII
 }
 
 function Initialize-Qemu([string]$Python) {

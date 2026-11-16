@@ -71,34 +71,42 @@ def matches(path, checksum):
         return False
 
 
-def download_file(url, target, checksum):
+def matches_program(path, checksum):
+    try:
+        # Windows checkouts and archives may use CRLF for the same Git blob.
+        return hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest() == checksum
+    except OSError:
+        return False
+
+
+def download_file(url, target, checksum, verify=matches):
     with urlopen(url, timeout=20) as response, target.open('wb') as output:
         shutil.copyfileobj(response, output, 1024 * 1024)
-    if not matches(target, checksum):
+    if not verify(target, checksum):
         raise ValueError(f'SHA-256 mismatch: {target.name}')
 
 
 def prepare_program(project, store, code, previous, log):
     files = code['files']
-    if all(matches(under(project, name), checksum) for name, checksum in files.items()):
+    if all(matches_program(under(project, name), checksum) for name, checksum in files.items()):
         return project, 0
     installed = under(store, f'programs/{code["commit"]}')
     count = 0
     for name, checksum in files.items():
         target = under(installed, name)
-        if matches(target, checksum):
+        if matches_program(target, checksum):
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_suffix(target.suffix + '.part')
         try:
             source = next((path for base in (previous, project) if base
-                           and matches(path := under(base, name), checksum)), None)
+                           and matches_program(path := under(base, name), checksum)), None)
             if source:
                 shutil.copyfile(source, temporary)
             else:
                 log(f'Downloading program file {name}')
                 download_file(f'https://raw.githubusercontent.com/{PROGRAM}/{code["commit"]}/{name}',
-                              temporary, checksum)
+                              temporary, checksum, verify=matches_program)
                 count += 1
             temporary.replace(target)
         finally:
@@ -145,7 +153,7 @@ def startup(project, data, log):
             if path == active:
                 code = manifest['program']
                 installed = under(store, f'programs/{code["commit"]}')
-                if all(matches(under(installed, name), checksum) for name, checksum in code['files'].items()):
+                if all(matches_program(under(installed, name), checksum) for name, checksum in code['files'].items()):
                     previous = installed
         except (OSError, ValueError, KeyError, AttributeError, TypeError):
             continue

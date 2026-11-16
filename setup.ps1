@@ -16,7 +16,7 @@ if (-not $DataDir) {
     $parent = Split-Path -Parent $project
     $shared = Join-Path $parent 'gget-battle-simulator-local'
     if (Test-Path -LiteralPath $savedDataDir -PathType Leaf) {
-        $saved = (Get-Content -LiteralPath $savedDataDir -Raw).Trim()
+        $saved = ([string](Get-Content -LiteralPath $savedDataDir -Raw)).Trim()
         if ($saved -and (Test-Path -LiteralPath $saved -PathType Container)) { $DataDir = $saved }
     }
     if (-not $DataDir -and (Test-Path -LiteralPath $legacy -PathType Container)) { $DataDir = $legacy }

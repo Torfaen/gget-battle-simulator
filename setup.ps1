@@ -148,6 +148,14 @@ function Install-ResourcePackages([string]$Python) {
         Write-Step "Using installed resource release $releaseTag"
         return
     }
+    $bundled = Join-Path $project 'resource-packages'
+    if (-not $ResourceArchiveDir -and
+        -not ($resourcePackages.Keys | Where-Object {
+            -not (Test-Path -LiteralPath (Join-Path $bundled $_) -PathType Leaf)
+        })) {
+        $ResourceArchiveDir = $bundled
+        Write-Step 'Using the bundled resource archives'
+    }
     $cache = Join-Path $DataDir "packages\$releaseTag"
     $paths = @{}
     $gh = $null

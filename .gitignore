@@ -8,6 +8,7 @@ __pycache__/
 # Local runtime, generated resources and captures.
 /artifacts/
 /original_battle_reuse/artifacts/
+/resource-packages/
 /investigations/
 /outputs/
 /.resource_cache/

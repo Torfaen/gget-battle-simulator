@@ -18,7 +18,9 @@ struct battle_checkpoint;
 
 struct battle_history {
     struct battle_checkpoint *last;
+    struct battle_checkpoint *redo;
     unsigned int count;
+    unsigned int redo_count;
     int keep_open;
     int load_pending;
     int mumu_checkpoint_pending;
@@ -41,7 +43,9 @@ int has_stage_event_flag(void *flag);
 int bind_stage_event_hooks(void *library, const struct battle_images *images);
 void stage_event_board_changed(void);
 
-enum manual_phase_result { MANUAL_ERROR, MANUAL_PASS, MANUAL_FINISHED, MANUAL_QUIT, MANUAL_REWOUND };
+enum manual_phase_result {
+    MANUAL_ERROR, MANUAL_PASS, MANUAL_FINISHED, MANUAL_QUIT, MANUAL_REWOUND, MANUAL_RESTORED_SETTLEMENT
+};
 
 int bind_manual_attack_intercept(void *library, const struct battle_images *images);
 int bind_enemy_camera_intercept(void *library, const struct battle_images *images);
@@ -63,7 +67,7 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
                                           const struct battle_session *session, const struct battle_exchange *exchange,
                                           const struct combat_services *combat, const struct stage_phase_services *phases,
                                           const struct exchange_api *api, const struct player_loop *loop,
-                                          void *token, int *turn, int side, struct battle_history *history, int settled);
+                                          void *token, int *turn, int *side, struct battle_history *history, int settled);
 
 void report_board_aura(void *view, void *dto_list, const void *method);
 void report_board_marker(void *view, int marker, void *coords, int side, int animate, const void *method);

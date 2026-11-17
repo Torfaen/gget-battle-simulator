@@ -20,7 +20,7 @@ python original_battle_reuse/kernel_runner.py interactive --stage 90510005
 
 1. 关卡准备脚本生成主表、关卡对象和资源索引。编队模块把窗口编队转换为原版用户表，计算驾驶员、支援者与地形属性，并检查机体形态、装备和出击限制。[`prepare_stage.py`](../original_battle_reuse/prepare_stage.py) · [`formation.py`](../original_battle_reuse/formation.py) · [`formation_rules.py`](../original_battle_reuse/formation_rules.py)
 2. 命令行运行器准备本局输入。Android 启动器查找 MuMu 的 ADB 连接，校验共用运行文件，并在隔离目录启动客体。客体初始化 IL2CPP、主表和关卡。[`kernel_runner.py`](../original_battle_reuse/kernel_runner.py) · [`android_bridge.py`](../original_battle_reuse/android_bridge.py) · [`android_entry.c`](../original_battle_reuse/android_entry.c)
-3. 窗口通过标准输入逐行发送指令。常用命令包括 `state` 查看盘面、`inspect <单位号>` 查看行动选项、`m <单位号> <x> <z>` 移动、`s <单位号>` 待机、`pass` 结束回合和 `undo` 撤回。客体在标准输出发送制表符分隔的 `UI` 事件，`STATE` 和 `UNIT` 描述盘面，`READY` 表示可以接受下一次操作。[`android_interactive.c`](../original_battle_reuse/android_interactive.c)
+3. 窗口通过标准输入逐行发送指令。常用命令包括 `state` 查看盘面、`inspect <单位号>` 查看行动选项、`m <单位号> <x> <z>` 移动、`s <单位号>` 待机、`pass` 结束回合、`undo` 撤回和 `redo` 恢复。客体在标准输出发送制表符分隔的 `UI` 事件，`STATE` 和 `UNIT` 描述盘面，`REDO` 给出可恢复的步数，`READY` 表示可以接受下一次操作。[`android_interactive.c`](../original_battle_reuse/android_interactive.c)
 4. 手操指令驱动原版我方阶段。结束回合后，客体用原版阶段服务和 AI 推进自动阵营，窗口根据后端事件显示行动和受击应对。每局日志位于 `original_battle_reuse/artifacts/kernel/interactive/`，可查看 `original_phase_step`、`original_phase_combat` 和 `UI` 事件，排查行动顺序和状态变化。[`android_exchange.c`](../original_battle_reuse/android_exchange.c)
 
 ## MuMu 战斗进度导入

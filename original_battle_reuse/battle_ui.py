@@ -598,6 +598,7 @@ class BattleWindow:
         self.ready = self.undo_available = False
         self.battle_running = False
         self.undo_count = 0
+        self.redo_count = 0
         self.rewind_at_settlement = False
         self.focus_loaded_board = False
         self.pending_result = self.settlement = None
@@ -860,6 +861,8 @@ class BattleWindow:
         self.pass_button.pack(side='left')
         self.undo_button = ttk.Button(self.phase_tools, text='行动回撤', command=self.rewind)
         self.undo_button.pack(side='left', padx=(4, 0))
+        self.redo_button = ttk.Button(self.phase_tools, text='行动恢复', command=self.restore_action)
+        self.redo_button.pack(side='left', padx=(4, 0))
         self.target_card = UnitCard(body, ENEMY, family)
         self.actor_card = UnitCard(body, OWN, family)
         self.unit_list_panel = tk.Frame(body, bg=PANEL, highlightbackground=OWN, highlightthickness=1)
@@ -1416,6 +1419,7 @@ class BattleWindow:
         self.pending_result = self.settlement = self.outcome = None
         self.ready = self.undo_available = self.pending_state = False
         self.undo_count = 0
+        self.redo_count = 0
         self.rewind_at_settlement = False
         self.focus_loaded_board = False
         self.save_status = ''
@@ -1494,10 +1498,15 @@ class BattleWindow:
         if self.outcome and self.rewind_at_settlement and self.backend.send('undo'):
             self.rewind_at_settlement = False
             self.pending_command = 'undo'
+            self.last_action_error = ''
             self.status.set('正在恢复原版战斗状态')
             self.refresh_controls()
         elif self.ready:
             self.send('undo', '正在恢复原版战斗状态')
+
+    def restore_action(self):
+        if self.redo_count:
+            self.send('redo', '正在恢复刚回撤的行动')
 
     def send(self, command, label='正在读取原版战斗状态'):
         if not self.ready or not self.backend:
@@ -1605,6 +1614,7 @@ class BattleWindow:
                     self.turn = turn
                     self.undo_available = bool(undo)
                     self.undo_count = undo
+                    self.redo_count = 0
                     self.moved_unit = moved
                     if moved:
                         self.selected = moved
@@ -1614,6 +1624,8 @@ class BattleWindow:
                     self.target = 0
                     self.selecting_weapon = bool(self.moved_unit and self.selected == self.moved_unit)
                     self.pending_state = True
+            elif event == 'REDO':
+                self.redo_count = int(values[0])
             elif event == 'BOARD_READY':
                 if values:
                     self.focus_enemy(int(values[0]))
@@ -1621,10 +1633,15 @@ class BattleWindow:
                 self.refresh_controls()
                 self.draw()
             elif event == 'SETTLED':
+                self.pending_command = ''
                 self.undo_count = int(values[0])
+                self.redo_count = 0
                 self.rewind_at_settlement = self.undo_available = self.undo_count > 0
                 self.start_button.state(['!disabled'])
-                self.show_completed_battle()
+                if self.outcome:
+                    self.refresh_controls()
+                else:
+                    self.show_completed_battle()
             elif event == 'LOADED':
                 if self.backend.native_checkpoint is not None:
                     self.last_action_error = f'已从 MuMu 续战 · 第 {values[0]} 回合'
@@ -1947,6 +1964,8 @@ class BattleWindow:
             elif event == 'REJECTED':
                 self.add_history('原版拒绝了该操作')
                 self.last_action_error = '该操作在当前战场状态不可用'
+                if self.outcome:
+                    self.status.set(self.last_action_error)
                 self.support_editor = None
                 self.pending_move = None
                 if self.pending_command.startswith('estimates '):
@@ -1997,7 +2016,7 @@ class BattleWindow:
                             self.focus_unit(opening)
                     if self.selected not in self.units:
                         self.selected = 0
-                    if completed != 'undo':
+                    if completed not in ('undo', 'redo'):
                         self.record_hp_changes()
                 self.refresh_controls()
                 if not completed.startswith(('e ', 'estimates ')) or self.selecting_weapon:
@@ -2053,6 +2072,8 @@ class BattleWindow:
             self.add_history(f'单位 {actor} 攻击单位 {target}')
         elif line.startswith('REUSE manual_undo '):
             self.add_history(f'已回撤至第 {line.split()[3]} 回合')
+        elif line.startswith('REUSE manual_redo '):
+            self.add_history(f'已恢复至第 {line.split()[3]} 回合')
         elif line.startswith('REUSE original_other_side_phase_enter '):
             side = int(line.split()[-1])
             self.auto_phase_label = '友军行动中' if side == 4 else '敌方行动中'
@@ -2074,6 +2095,8 @@ class BattleWindow:
         if self.outcome or not self.pending_result or not self.settlement:
             return
         self.outcome, turn, reason = self.pending_result
+        self.turn = turn
+        self.turn_label.set(f'第 {turn} 回合')
         result = '胜利' if self.outcome == 'victory' else f'失败 · {DEFEAT_REASONS.get(reason, "原版判定")}'
         self.status.set(f'第 {turn} 回合 · {result} · 已完成本地结算')
         self.add_history(f'{result} · 原版已结算')
@@ -2319,6 +2342,8 @@ class BattleWindow:
         self.undo_button.configure(text=undo_text,
                                    state='normal' if (self.ready and self.undo_available) or
                                    self.rewind_at_settlement else 'disabled')
+        redo_text = f'行动恢复 · {self.redo_count}' if self.redo_count else '行动恢复'
+        self.redo_button.configure(text=redo_text, state='normal' if self.ready and self.redo_count else 'disabled')
         self.pass_button.configure(state='normal' if self.ready and not self.outcome else 'disabled')
         show_phase_tools = normal_commands and (not self.selecting_weapon or
                                                 (self.moved_unit and not self.confirming_attack))
@@ -2360,7 +2385,7 @@ class BattleWindow:
         else:
             self.map_tools.grid()
             for button in (self.attack_button, self.attack_defense_button,
-                           self.undo_button, self.standby_button, self.pass_button):
+                           self.undo_button, self.redo_button, self.standby_button, self.pass_button):
                 button.configure(state='disabled')
             kind, direction, count, can_fire = self.map_preview or (0, 0, 0, 0)
             rotatable = self.ready and kind in (3, 4)
@@ -2400,7 +2425,7 @@ class BattleWindow:
             self.skill_cancel.configure(state='normal' if self.ready else 'disabled')
             for button in (self.attack_button, self.attack_defense_button,
                            self.map_button, self.skill_button, self.unit_skill_button, self.supporter_skill_button,
-                           self.undo_button,
+                           self.undo_button, self.redo_button,
                            self.standby_button, self.pass_button):
                 button.configure(state='disabled')
             self.map_picker.configure(state='disabled')

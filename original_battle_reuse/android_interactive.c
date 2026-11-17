@@ -77,6 +77,7 @@ struct checkpoint_header {
 
 struct battle_checkpoint {
     struct battle_checkpoint *previous;
+    int settled;
     struct checkpoint_header header;
     unsigned char bytes[];
 };
@@ -455,6 +456,9 @@ static int emit_state(const struct manual_phase *phase, void *origins, int durin
     printf("UI\t%s\t%lld\t%d\t%d\t%d\t%d\t%d\n",
            during_other_phase ? "BOARD" : "STATE", phase->session->stage->id, phase->turn,
            phase->width, phase->height, during_other_phase ? 0 : (int) phase->history->count, phase->moved_unit);
+    if (!during_other_phase) {
+        printf("UI\tREDO\t%u\n", phase->history->redo_count);
+    }
     printf("UI\tMAP_AREA\t%d\t%d\t%d\t%d\t%s\n", x, z, width, height, asset_name);
     emit_map_objectives(phase);
     for (int number = 1; number <= phase->session->unit_count; ++number) {
@@ -729,6 +733,7 @@ static struct battle_checkpoint *capture_checkpoint(const struct manual_phase *p
         return 0;
     }
     entry->previous = 0;
+    entry->settled = 0;
     entry->header = (struct checkpoint_header) {
         .stage_seed = (unsigned long long) seed, .undo_count = (unsigned long long) undo_count,
         .size = (unsigned int) size, .moved_unit = (unsigned int) moved_unit,
@@ -754,17 +759,28 @@ static int push_checkpoint(struct manual_phase *phase, struct battle_checkpoint 
     return 1;
 }
 
+static struct battle_checkpoint *pop_checkpoint(struct battle_checkpoint **last, unsigned int *count) {
+    struct battle_checkpoint *entry = *last;
+    *last = entry->previous;
+    --*count;
+    return entry;
+}
+
 static void discard_checkpoint(struct battle_history *history) {
-    struct battle_checkpoint *entry = history->last;
-    history->last = entry->previous;
-    --history->count;
-    free(entry);
+    free(pop_checkpoint(&history->last, &history->count));
+}
+
+static void clear_redo(struct battle_history *history) {
+    while (history->redo) {
+        free(pop_checkpoint(&history->redo, &history->redo_count));
+    }
 }
 
 void clear_battle_history(struct battle_history *history) {
     while (history->last) {
         discard_checkpoint(history);
     }
+    clear_redo(history);
 }
 
 static int save_action(struct manual_phase *phase) {
@@ -3238,7 +3254,7 @@ static int restore_checkpoint(struct manual_phase *phase, const struct battle_ch
     if (!forecast_random_state(phase, &state, 0) ||
         !get(phase, phase->session->turn_repository, "FindLatest", &turn) ||
         !get_int(phase, turn, "get_Number", &phase->turn) ||
-        !get_int(phase, turn, "get_CurrentPhaseBattleSide", &phase->side) || phase->side != 0 ||
+        !get_int(phase, turn, "get_CurrentPhaseBattleSide", &phase->side) || (phase->side != 0 && !entry->settled) ||
         !map_origins(phase, &map, &origins) || !read_board_size(phase, map)) {
         return 0;
     }
@@ -3248,15 +3264,33 @@ static int restore_checkpoint(struct manual_phase *phase, const struct battle_ch
         forecast_random_state(phase, &state, 1);
 }
 
-static enum command_result undo_action(struct manual_phase *phase) {
-    if (!phase->history->last) {
+static enum command_result restore_action(struct manual_phase *phase, int forward, int settled) {
+    struct battle_history *history = phase->history;
+    struct battle_checkpoint **source = forward ? &history->redo : &history->last;
+    unsigned int *source_count = forward ? &history->redo_count : &history->count;
+    struct battle_checkpoint **destination = forward ? &history->last : &history->redo;
+    unsigned int *destination_count = forward ? &history->count : &history->redo_count;
+    if (!*source) {
         return COMMAND_ILLEGAL;
     }
-    if (!restore_checkpoint(phase, phase->history->last)) {
+    struct battle_checkpoint *current = write_snapshot(phase) ? capture_checkpoint(phase, phase->moved_unit, 0) : 0;
+    if (!current) {
+        printf("REUSE manual_history_capture_failed\n");
+        return COMMAND_ILLEGAL;
+    }
+    /* The move marker describes the action between the two checkpoints. */
+    current->header.is_move = (*source)->header.is_move;
+    current->settled = settled;
+    if (!restore_checkpoint(phase, *source)) {
+        free(current);
         return COMMAND_FAILED;
     }
-    discard_checkpoint(phase->history);
-    printf("REUSE manual_undo turn %d depth %u\n", phase->turn, phase->history->count);
+    free(pop_checkpoint(source, source_count));
+    current->previous = *destination;
+    *destination = current;
+    ++*destination_count;
+    printf("REUSE manual_%s turn %d depth %u\n", forward ? "redo" : "undo", phase->turn,
+           forward ? history->redo_count : history->count);
     return COMMAND_OK;
 }
 
@@ -3330,6 +3364,7 @@ static int import_timeline(struct manual_phase *phase) {
         }
         entry->header = record;
         entry->previous = 0;
+        entry->settled = 0;
         *next = entry;
         next = &entry->previous;
         ++loaded.count;
@@ -3895,7 +3930,7 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
                                           const struct battle_session *session, const struct battle_exchange *exchange,
                                           const struct combat_services *combat, const struct stage_phase_services *phases,
                                           const struct exchange_api *api, const struct player_loop *loop,
-                                          void *token, int *turn, int side, struct battle_history *history, int settled) {
+                                          void *token, int *turn, int *side, struct battle_history *history, int settled) {
     auto_defend_turn = 0;
     void *(*string_new)(const char *) = dlsym(library, "il2cpp_string_new");
     struct manual_phase phase = {
@@ -3907,7 +3942,7 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
         .participation_class = get_class(images->domain, "Eternal.Domain", "BattleParticipationStatus"),
         .calculator = combat->calculator,
         .availability = combat->availability, .move_options = phases->movement_options,
-        .token = token, .turn = *turn, .side = side, .history = history,
+        .token = token, .turn = *turn, .side = *side, .history = history,
         .random_class = get_class(images->domain, "Eternal.Domain", "StageRandomEntity"),
         .new_object = dlsym(library, "il2cpp_object_new"), .boxed_field = dlsym(library, "il2cpp_field_get_value_object"),
         .set_field = dlsym(library, "il2cpp_field_set_value"),
@@ -3969,12 +4004,19 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
     enum manual_phase_result outcome = MANUAL_QUIT;
     char line[128];
     if (settled) {
-        printf("UI\tSETTLED\t%u\n", history->count);
-        fflush(0);
-        while (read_command(line, sizeof(line)) && strcmp(line, "quit")) {
-            if (!strcmp(line, "undo") && history->last) {
-                outcome = undo_action(&phase) == COMMAND_OK ? MANUAL_REWOUND : MANUAL_ERROR;
+        for (;;) {
+            printf("UI\tSETTLED\t%u\n", history->count);
+            fflush(0);
+            if (!read_command(line, sizeof(line)) || !strcmp(line, "quit")) {
                 break;
+            }
+            if (!strcmp(line, "undo")) {
+                enum command_result result = restore_action(&phase, 0, 1);
+                if (result != COMMAND_ILLEGAL) {
+                    outcome = result == COMMAND_OK ? MANUAL_REWOUND : MANUAL_ERROR;
+                    break;
+                }
+                printf("UI\tREJECTED\n");
             }
         }
         goto done;
@@ -4026,6 +4068,9 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
         }
         if (!strcmp(line, "pass")) {
             outcome = save_action(&phase) && commit_movement(&phase, origins) ? MANUAL_PASS : MANUAL_ERROR;
+            if (outcome == MANUAL_PASS) {
+                clear_redo(history);
+            }
             break;
         }
         if (!strcmp(line, "v cancel")) {
@@ -4041,6 +4086,8 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
         long long map_weapon = 0;
         char map_mode = 0;
         struct coord destination = {0};
+        int forward = !strcmp(line, "redo"), backward = !strcmp(line, "undo");
+        int redo_settlement = forward && history->redo && history->redo->settled;
         enum command_result result = COMMAND_ILLEGAL;
         if (!strcmp(line, "state")) {
             if (emit_state(&phase, origins, 0, 0)) {
@@ -4064,6 +4111,7 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
         } else if (sscanf(line, "back %d", &actor) == 1) {
             result = cancel_move(&phase, origins, actor);
             if (result == COMMAND_OK) {
+                clear_redo(history);
                 phase.support_actor = phase.map_actor = phase.skill_actor = 0;
                 phase.selected_skill_candidates = phase.selected_skill_targets = 0;
                 if (!map_origins(&phase, &map, &origins) || !emit_state(&phase, origins, 0, 0)) {
@@ -4126,8 +4174,8 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
             if (result == COMMAND_OK && map_mode != 'f') {
                 continue;
             }
-        } else if (!strcmp(line, "undo")) {
-            result = undo_action(&phase);
+        } else if (forward || backward) {
+            result = restore_action(&phase, forward, 0);
         }
         if (result == COMMAND_ILLEGAL) {
             printf("UI\tREJECTED\n");
@@ -4137,16 +4185,24 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
         phase.support_actor = 0;
         phase.skill_actor = 0;
         phase.selected_skill_candidates = phase.selected_skill_targets = 0;
+        if (result == COMMAND_OK && redo_settlement) {
+            outcome = map_origins(&phase, &map, &origins) && emit_state(&phase, origins, 1, 0)
+                ? MANUAL_RESTORED_SETTLEMENT : MANUAL_ERROR;
+            break;
+        }
         void *context = 0;
         void *args[] = {token};
         int finished = 0;
         if (result == COMMAND_FAILED ||
-            (strcmp(line, "undo") &&
+            (!forward && !backward &&
              !task(&phase, "manual_conditions", exchange->conditions, "CheckAndPlayEventAsync", 1, args, 0)) ||
             !get(&phase, session->context_repository, "Get", &context) ||
             !get_bool(&phase, context, "IsBattleFinished", &finished)) {
             outcome = MANUAL_ERROR;
             break;
+        }
+        if (!forward && !backward) {
+            clear_redo(history);
         }
         if (finished) {
             outcome = MANUAL_FINISHED;
@@ -4159,6 +4215,7 @@ enum manual_phase_result run_manual_phase(void *library, const struct battle_ima
     }
 done:
     *turn = phase.turn;
+    *side = phase.side;
     free(phase.support_plan);
     return outcome;
 }

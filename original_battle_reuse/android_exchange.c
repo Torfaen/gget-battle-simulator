@@ -780,7 +780,7 @@ static int advance_phase(void *library, const struct battle_images *images, cons
             resumed = 0;
             enum manual_phase_result result = manual
                 ? run_manual_phase(library, images, session, exchange, combat, &flow->phases, api, loop,
-                                   token, &turn, side, &history, 0)
+                                   token, &turn, &side, &history, 0)
                 : MANUAL_PASS;
             if (result == MANUAL_QUIT) {
                 result_code = 1;
@@ -788,6 +788,12 @@ static int advance_phase(void *library, const struct battle_images *images, cons
             }
             if (result == MANUAL_ERROR) {
                 break;
+            }
+            if (result == MANUAL_RESTORED_SETTLEMENT) {
+                if (!get(api, session->context_repository, "Get", &context)) {
+                    break;
+                }
+                goto settle;
             }
             if (manual) {
                 phase = 0;
@@ -830,7 +836,7 @@ settle:
             break;
         }
         enum manual_phase_result decision = run_manual_phase(library, images, session, exchange, combat, &flow->phases,
-                                                             api, loop, token, &turn, side, &history, 1);
+                                                             api, loop, token, &turn, &side, &history, 1);
         if (decision != MANUAL_REWOUND) {
             result_code = decision == MANUAL_QUIT;
             break;

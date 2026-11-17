@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import tkinter as tk
 from tkinter import font, ttk
 try:
@@ -322,7 +323,7 @@ class FormationEditor(tk.Frame):
         footer = min(58, max(42, round(height * .29)))
         baseline = height - footer
         unit_path = self.unit_picture(form or member.unit)
-        pilot_path = self.pilot_picture(member.pilot, request=baseline >= 66)
+        pilot_path = self.pilot_picture(member.pilot, request=baseline >= 66) if member.unit else None
         unit_state = f'Lv{member.level}  ★{member.stars}'
         if member.sp:
             unit_state += '  SP'
@@ -356,18 +357,19 @@ class FormationEditor(tk.Frame):
         if boost:
             self.draw_leader_badge(canvas, width)
         canvas.create_rectangle(1, baseline, width - 1, height - 1, fill=CARD, outline='')
-        name = self.caption('unit', member.unit)
-        pilot = self.caption('pilot', member.pilot)
+        name = self.caption('unit', member.unit) if member.unit else '空位'
         font_size = 11 if width >= 210 else 9
         title_font = self.card_title_fonts[font_size]
         subtitle_font = self.card_subtitle_font
         canvas.create_text(7, baseline + 3, text=self.fit_label(name, title_font, width - 14), anchor='nw',
                            fill=INVALID if invalid else TEXT, font=title_font)
-        available = width - 22 - subtitle_font.measure(unit_state)
-        pilot_level = f' Lv{member.pilot_level}'
-        pilot = self.fit_label(pilot, subtitle_font, max(15, available - subtitle_font.measure(pilot_level)))
-        canvas.create_text(7, height - 5, text=pilot + pilot_level, anchor='sw', fill=MUTED, font=subtitle_font)
-        canvas.create_text(width - 6, height - 5, text=unit_state, anchor='se', fill=BLUE, font=subtitle_font)
+        if member.unit:
+            available = width - 22 - subtitle_font.measure(unit_state)
+            pilot_level = f' Lv{member.pilot_level}'
+            pilot = self.fit_label(self.caption('pilot', member.pilot), subtitle_font,
+                                   max(15, available - subtitle_font.measure(pilot_level)))
+            canvas.create_text(7, height - 5, text=pilot + pilot_level, anchor='sw', fill=MUTED, font=subtitle_font)
+            canvas.create_text(width - 6, height - 5, text=unit_state, anchor='se', fill=BLUE, font=subtitle_font)
         self.card_states[position] = state
 
     @staticmethod
@@ -396,7 +398,9 @@ class FormationEditor(tk.Frame):
         return self.battle.stage_choices.get(self.battle.stage.get())
 
     def caption(self, kind, item):
-        return '未装备' if kind == 'op' and item == 0 else self.catalog.name(kind, item)
+        if item == 0:
+            return {'op': '未装备', 'unit': '不编入', 'supporter': '不编入', 'pilot': '未选择'}.get(kind, '0')
+        return self.catalog.name(kind, item)
 
     def select(self, force, slot):
         self.close_chooser()
@@ -437,8 +441,9 @@ class FormationEditor(tk.Frame):
             button.configure(text=self.caption('supporter', row.supporter))
             label.configure(fg=INVALID if (force, -1) in self.invalid_slots else MUTED)
             cap = self.catalog.supporter_max_level(row.supporter) if row.supporter in self.catalog.supporters else 100
-            level.configure(values=tuple(range(1, cap + 1)))
-            level.set(row.supporter_level)
+            level.configure(values=tuple(range(1, cap + 1)) if row.supporter else ())
+            level.set(row.supporter_level if row.supporter else '')
+            level.state(['!disabled' if row.supporter else 'disabled'])
             self.update_supporter_picture(force)
         self.refresh_details()
         self.return_button.state(['!disabled' if self.battle.width else 'disabled'])
@@ -481,7 +486,8 @@ class FormationEditor(tk.Frame):
                                          f'{self.caption("unit", member.unit)}{terrain}')
         for kind in ('unit', 'pilot', 'op'):
             self.controls[kind].configure(text=self.caption(kind, getattr(member, kind)))
-        effects = self.catalog.part_effects(member.op)
+            self.controls[kind].state(['!disabled' if kind == 'unit' or member.unit else 'disabled'])
+        effects = self.catalog.part_effects(member.op) if member.unit else ()
         effect_text = 'OP 效果  ' + '  ·  '.join(effect.replace('\n', ' ') for effect in effects) if effects else ''
         if self.equipped_effect.get('1.0', 'end-1c') != effect_text:
             self.equipped_effect.configure(state='normal')
@@ -499,8 +505,9 @@ class FormationEditor(tk.Frame):
         ):
             widget = self.controls[name]
             widget.configure(values=tuple(range(start, cap + 1)))
-            widget.set(getattr(member, name))
-            widget.state(['disabled' if name == 'ssp_level' and not member.ssp else '!disabled'])
+            widget.set(getattr(member, name) if member.unit else '')
+            enabled = member.unit and (name != 'ssp_level' or member.ssp)
+            widget.state(['!disabled' if enabled else 'disabled'])
         for name, usable in (('sp', unit and self.catalog.can_sp(member.unit)),
                              ('ssp', member.unit in self.catalog.ssp_config)):
             widget, state = self.controls[name]
@@ -563,6 +570,12 @@ class FormationEditor(tk.Frame):
         member = self.member
         if getattr(member, kind) == item:
             return
+        if kind == 'unit' and item == 0:
+            force, slot = self.selected
+            self.team[force].members[slot] = replace(member, unit=0, level=1, stars=0, sp=False,
+                                                     ssp=False, ssp_level=1, op=0, weapons={}, ssp_cores=None)
+            self.edited()
+            return
         setattr(member, kind, item)
         if kind == 'unit':
             member.sp = member.sp and self.catalog.can_sp(item)
@@ -584,7 +597,8 @@ class FormationEditor(tk.Frame):
     def set_supporter(self, force, identifier):
         row = self.team[force]
         row.supporter = identifier
-        row.supporter_level = min(row.supporter_level, self.catalog.supporter_max_level(identifier))
+        if identifier:
+            row.supporter_level = min(row.supporter_level, self.catalog.supporter_max_level(identifier))
         self.edited()
 
     def set_supporter_level(self, force, level):
@@ -611,17 +625,17 @@ class FormationEditor(tk.Frame):
         self.chooser_scroll.grid(row=2, column=1, rowspan=2, sticky='ns')
         self.chooser_results.configure(yscrollcommand=self.chooser_scroll.set)
         style = ttk.Style(panel)
-        style.configure('Pilot.Treeview', background=SURFACE, fieldbackground=SURFACE, foreground=TEXT,
+        style.configure('FormationRole.Treeview', background=SURFACE, fieldbackground=SURFACE, foreground=TEXT,
                         rowheight=26, font=self.font)
-        style.map('Pilot.Treeview', background=[('selected', '#2373ac')], foreground=[('selected', TEXT)])
-        self.pilot_results = ttk.Treeview(panel, show='tree', style='Pilot.Treeview', height=4,
-                                          selectmode='browse', yscrollcommand=self.chooser_scroll.set)
-        self.pilot_results.column('#0', width=220, minwidth=120)
-        self.pilot_results.grid(row=2, column=0, rowspan=2, sticky='nsew')
-        self.pilot_results.grid_remove()
-        self.pilot_results.bind('<<TreeviewSelect>>', lambda _: self.draw_chooser_preview())
+        style.map('FormationRole.Treeview', background=[('selected', '#2373ac')], foreground=[('selected', TEXT)])
+        self.role_results = ttk.Treeview(panel, show='tree', style='FormationRole.Treeview', height=4,
+                                         selectmode='browse', yscrollcommand=self.chooser_scroll.set)
+        self.role_results.column('#0', width=220, minwidth=120)
+        self.role_results.grid(row=2, column=0, rowspan=2, sticky='nsew')
+        self.role_results.grid_remove()
+        self.role_results.bind('<<TreeviewSelect>>', lambda _: self.draw_chooser_preview())
         for event in ('<Return>', '<Double-Button-1>'):
-            self.pilot_results.bind(event, self.apply_choice)
+            self.role_results.bind(event, self.apply_choice)
         self.role_icons = {role: self.picture(PILOT_ASSETS / 'roles' / f'{role}.png', 20, 20)
                            for role in ROLES}
         self.chooser_effects = tk.Text(panel, bg=ART, fg=TEXT, font=self.font, width=25, height=4,
@@ -668,10 +682,10 @@ class FormationEditor(tk.Frame):
         if kind == 'pilot' and self.member.unit in self.catalog.units:
             if linked := self.catalog.linked_pilot(self.member.unit):
                 options = [(linked, self.caption('pilot', linked))]
-        if kind == 'op':
-            options.insert(0, (0, self.caption('op', 0)))
         if current and current not in {item for item, _ in options}:
             options.insert(0, (current, self.caption(kind, current)))
+        if kind in ('op', 'unit', 'supporter'):
+            options.insert(0, (0, self.caption(kind, 0)))
         self.chooser_kind, self.chooser_current, self.chooser_apply = kind, current, on_pick
         self.chooser_force = self.selected[0] if force is None else force
         self.profile_key = None
@@ -680,32 +694,35 @@ class FormationEditor(tk.Frame):
         self.profile_art.configure(width=240 if kind == 'unit' else 154)
         self.chooser_profile.columnconfigure(0, weight=1 if kind == 'unit' else 0)
         self.chooser_profile.columnconfigure(1, weight=2 if kind == 'unit' else 1)
-        for widget, shown in ((self.pilot_results, kind == 'pilot'), (self.chooser_results, kind != 'pilot'),
+        has_roles = kind in ('unit', 'pilot')
+        for widget, shown in ((self.role_results, has_roles), (self.chooser_results, not has_roles),
                               (self.chooser_effects, kind == 'op'), (self.chooser_profile, kind != 'op')):
             widget.grid() if shown else widget.grid_remove()
-        self.chooser_scroll.configure(command=(self.pilot_results if kind == 'pilot' else self.chooser_results).yview)
+        self.chooser_scroll.configure(command=(self.role_results if has_roles else self.chooser_results).yview)
         self.chooser_query.set('')
         self.chooser.place(rely=1, relwidth=1, relheight=.74 if kind == 'unit' else .56, anchor='sw')
         self.chooser.lift()
         self.chooser_search.focus_set()
 
     def filter_choices(self, *_):
-        if not self.chooser_kind:
+        kind = self.chooser_kind
+        if not kind:
             return
         terms = self.chooser_query.get().casefold().split()
         results = self.chooser_results
         results.delete(0, 'end')
-        pilot_rows = self.pilot_results.get_children()
-        if pilot_rows:
-            self.pilot_results.delete(*pilot_rows)
+        role_results = self.role_results
+        role_rows = role_results.get_children()
+        if role_rows:
+            role_results.delete(*role_rows)
+        role_for = {'unit': self.catalog.unit_role, 'pilot': self.catalog.pilot_role}.get(kind)
         self.chooser_visible = []
         labels = []
         for item, title in self.chooser_options:
-            effects = self.catalog.part_effects(item) if self.chooser_kind == 'op' else ()
-            prefix = ''
-            if self.chooser_kind == 'pilot':
-                prefix = ROLES.get(self.catalog.pilot_role(item), '')
-            elif self.chooser_kind == 'supporter':
+            effects = self.catalog.part_effects(item) if kind == 'op' else ()
+            role = role_for(item) if role_for else 0
+            prefix = ROLES.get(role, '')
+            if kind == 'supporter':
                 prefix = self.catalog.supporter_badges(item, self.supporter_step(self.chooser_force, item))
             searchable = ' '.join((title, str(item), prefix, *effects)).casefold()
             if not all(term in searchable for term in terms):
@@ -713,10 +730,9 @@ class FormationEditor(tk.Frame):
             self.chooser_visible.append((item, title))
             detail = effects[0].replace('\n', ' ') if effects else str(item) if item else ''
             label = f'{title}  ·  {detail}' if detail else title
-            if self.chooser_kind == 'pilot':
-                icon = self.role_icons.get(self.catalog.pilot_role(item))
-                self.pilot_results.insert('', 'end', iid=str(len(self.chooser_visible) - 1),
-                                          image=icon or '', text=f'{prefix}  {label}' if prefix else label)
+            if role_for:
+                role_results.insert('', 'end', iid=str(len(self.chooser_visible) - 1),
+                                    image=self.role_icons.get(role) or '', text=f'{prefix}  {label}' if prefix else label)
             else:
                 labels.append(f'{prefix}  {label}' if prefix else label)
         if labels:
@@ -724,10 +740,10 @@ class FormationEditor(tk.Frame):
         if self.chooser_visible:
             index = next((i for i, (item, _) in enumerate(self.chooser_visible)
                           if item == self.chooser_current), 0)
-            if self.chooser_kind == 'pilot':
-                self.pilot_results.selection_set(str(index))
-                self.pilot_results.focus(str(index))
-                self.pilot_results.see(str(index))
+            if role_for:
+                role_results.selection_set(str(index))
+                role_results.focus(str(index))
+                role_results.see(str(index))
             else:
                 results.selection_set(index)
                 results.activate(index)
@@ -735,7 +751,8 @@ class FormationEditor(tk.Frame):
         self.draw_chooser_preview()
 
     def chooser_selection(self):
-        selected = self.pilot_results.selection() if self.chooser_kind == 'pilot' else self.chooser_results.curselection()
+        selected = (self.role_results.selection() if self.chooser_kind in ('unit', 'pilot')
+                    else self.chooser_results.curselection())
         if selected and (index := int(selected[0])) < len(self.chooser_visible):
             return self.chooser_visible[index]
         return None
@@ -757,7 +774,7 @@ class FormationEditor(tk.Frame):
             return
         canvas = self.profile_art
         canvas.delete('all')
-        if not (selection := self.chooser_selection()):
+        if not (selection := self.chooser_selection()) or not selection[0]:
             self.chooser_image = None
             return
         identifier, _ = selection
@@ -887,6 +904,8 @@ class FormationEditor(tk.Frame):
         kind, item, level = key
         _, title = selection
         self.profile_label(title, bold=True)
+        if not item:
+            return
         if kind == 'unit':
             self.draw_unit_info(item)
         elif kind == 'pilot':
@@ -929,10 +948,10 @@ class FormationEditor(tk.Frame):
         if item not in self.catalog.units:
             return
         unit = self.catalog.units[item]
-        role = ROLES.get(unit[2])
-        meta = (unit[10], UNIT_RARITIES.get(unit[14]), role)
+        role = self.catalog.unit_role(item)
+        meta = (unit[10], UNIT_RARITIES.get(unit[14]), ROLES.get(role))
         if any(meta):
-            self.profile_label('  ·  '.join(filter(None, meta)), color=ROLE_COLORS.get(unit[2], MUTED))
+            self.profile_label('  ·  '.join(filter(None, meta)), color=ROLE_COLORS.get(role, MUTED))
         series = sorted(self.catalog.series_sets.get(unit[22], ()), key=lambda row: row[1])
         if series:
             self.profile_label(' / '.join(self.caption('series', key) for key, _ in series), color=MUTED)

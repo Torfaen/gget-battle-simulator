@@ -22,7 +22,6 @@ struct deployment {
     struct battle_session session;
 };
 
-static int uses_custom_formation(void);
 
 static void *new_domain(const struct battle_images *images, const char *name, int count, void **arguments) {
     return construct(get_class(images->domain, "Eternal.Domain", name), count, arguments);
@@ -92,7 +91,7 @@ static int bind_local_user(void *library, const struct battle_images *images, vo
 
 static void *create_player_formation(const struct battle_images *images, const struct player_selection *selection,
                                      void *store, void *master, void *info, void *characters, void *date_time,
-                                     struct battle_session *session) {
+                                     struct battle_session *session, int custom_formation) {
     void *supporter_args[] = {store, info, master};
     void *supporters = new_infrastructure(images, "UserSupporterRepository", 3, supporter_args);
     void *part_args[] = {store, master, info};
@@ -115,7 +114,7 @@ static void *create_player_formation(const struct battle_images *images, const s
     int type = selection->formation_type;
     long long target = selection->content_target;
     /* Nullable<bool>: enable the recorded sortie form for local formations. */
-    unsigned short auto_form_change = uses_custom_formation() ? 0x0101 : 0;
+    unsigned short auto_form_change = custom_formation ? 0x0101 : 0;
     void *formation_args[] = {&type, &target, &auto_form_change};
     void *formation = 0;
     return repository && call(formation_class, "CreateUserGroupFormationEntity", 3, repository,
@@ -124,7 +123,7 @@ static void *create_player_formation(const struct battle_images *images, const s
 
 static struct deployment create_initializer(void *library, const struct battle_images *images, void *unit_repository,
                                              void *master_repository, void *user_store,
-                                             const struct player_selection *selection) {
+                                             const struct player_selection *selection, int custom_formation) {
     const struct deployment failed = {0};
     void *clock_class = get_class(images->application, "Eternal.Application", "EternalDateTimeService");
     void *date_time = construct(clock_class, 0, 0);
@@ -216,7 +215,7 @@ static struct deployment create_initializer(void *library, const struct battle_i
     if (selection) {
         deployment.formation = create_player_formation(images, selection, user_store, master_repository,
                                                        user_info, characters, date_time,
-                                                       &deployment.session);
+                                                       &deployment.session, custom_formation);
         if (!deployment.formation) {
             return failed;
         }
@@ -333,13 +332,16 @@ struct player_slot {
     int position;
 };
 
-static int uses_custom_formation(void) {
+static int read_custom_formation(int *expected_supporters) {
+    *expected_supporters = 2;
     void *marker = fopen(battle_path("stage/CustomFormation.enabled"), "r");
     if (!marker) {
         return 0;
     }
+    int fields = fscanf(marker, "%d", expected_supporters);
     fclose(marker);
-    return 1;
+    /* Older custom formations use an empty marker and always have two supporters. */
+    return fields != 0 && *expected_supporters >= 0 && *expected_supporters <= 2 ? 1 : -1;
 }
 
 static void log_player_levels(void *(*object_class)(void *), void *(*unbox)(void *),
@@ -361,7 +363,7 @@ static void log_player_levels(void *(*object_class)(void *), void *(*unbox)(void
 
 static int check_player_units(void *library, const struct battle_images *images, void *repository,
                               const struct deployment *deployment, void *master_stage,
-                              struct player_slot *slots, int custom_formation) {
+                              struct player_slot *slots, int custom_formation, int expected_supporters) {
     struct expected_player {
         int force;
         int position;
@@ -380,12 +382,18 @@ static int check_player_units(void *library, const struct battle_images *images,
         int fields = custom_formation
             ? fscanf(file, "%d %d %lld %lld %lld", &row->force, &row->position, &row->unit, &row->character, &row->master)
             : fscanf(file, "%d %d %lld %lld", &row->force, &row->position, &row->unit, &row->character);
-        if (fields != (custom_formation ? 5 : 4)) {
+        if (fields == -1) {
             break;
         }
+        if (fields != (custom_formation ? 5 : 4)) {
+            fclose(file);
+            return 0;
+        }
     }
+    char extra;
+    int has_extra_rows = fscanf(file, " %c", &extra) == 1;
     fclose(file);
-    if (lines != FIXTURE_PLAYER_UNITS) {
+    if (!lines || has_extra_rows || (!custom_formation && lines != FIXTURE_PLAYER_UNITS)) {
         return 0;
     }
     void *(*unbox)(void *) = dlsym(library, "il2cpp_object_unbox");
@@ -408,7 +416,7 @@ static int check_player_units(void *library, const struct battle_images *images,
     int guest_force_index = *(int *) unbox(guest_force);
     printf("REUSE player_formation_forces own %d guest %d\n", own_force_index, guest_force_index);
     void *repository_class = object_class(repository);
-    for (int local_id = 1; local_id <= FIXTURE_PLAYER_UNITS; ++local_id) {
+    for (int local_id = 1; local_id <= lines; ++local_id) {
         void *id_args[] = {&local_id};
         void *id = new_domain(images, "IngameUnitId", 1, id_args);
         void *lookup_args[] = {id};
@@ -492,8 +500,8 @@ static int check_player_units(void *library, const struct battle_images *images,
             }
         }
     }
-    printf("REUSE native_player_roster %d supporters %d\n", FIXTURE_PLAYER_UNITS, supporter_count);
-    return supporter_count == 2;
+    printf("REUSE native_player_roster %d supporters %d\n", lines, supporter_count);
+    return supporter_count == expected_supporters ? lines : 0;
 }
 
 static void *create_stage_initializer(void *library, const struct battle_images *images,
@@ -522,7 +530,7 @@ static void *create_stage_initializer(void *library, const struct battle_images 
 
 static int initialize_map_root(void *library, const struct battle_images *images,
                                const struct battle_session *session, void *scene, void *map,
-                               const struct player_slot *slots, int custom_formation) {
+                               const struct player_slot *slots, int player_count, int custom_formation) {
     void *(*unbox)(void *) = dlsym(library, "il2cpp_object_unbox");
     void *(*object_class)(void *) = dlsym(library, "il2cpp_object_get_class");
     if (!unbox || !object_class) {
@@ -560,7 +568,7 @@ static int initialize_map_root(void *library, const struct battle_images *images
             return 0;
         }
         positioned += place != 0;
-        if (!place && unit_number <= FIXTURE_PLAYER_UNITS) {
+        if (!place && unit_number <= player_count) {
             void *unit = 0, *existence = 0;
             if (!call(object_class(unit_repository), "FindById", 1, unit_repository, lookup_args, &unit) || !unit ||
                 !call(object_class(unit), "get_ExistenceType", 0, unit, 0, &existence) || !existence) {
@@ -579,9 +587,9 @@ static int initialize_map_root(void *library, const struct battle_images *images
         }
     }
     printf("REUSE native_map_root_created active_units %d positioned_units %d\n", active, positioned);
-    int expected_active = FIXTURE_PLAYER_UNITS - unavailable_players + session->stage->initial_npcs +
+    int expected_active = player_count - unavailable_players + session->stage->initial_npcs +
         session->stage->initial_gimmicks;
-    return !(custom_formation && unavailable_players) && unavailable_players < FIXTURE_PLAYER_UNITS &&
+    return !(custom_formation && unavailable_players) && unavailable_players < player_count &&
         active == expected_active && positioned == expected_active;
 }
 
@@ -618,8 +626,13 @@ int verify_roster(void *library, const struct battle_images *images, void *unit_
     printf("REUSE npc_stage_terrain %d\n", terrain_type);
     fflush(0);
     struct player_selection selection = {0};
+    int expected_supporters, custom_formation = 0;
     if (load_player) {
-    void *file = fopen(battle_path("stage/PlayerSelection.tsv"), "r");
+        custom_formation = read_custom_formation(&expected_supporters);
+        if (custom_formation < 0) {
+            return 15;
+        }
+        void *file = fopen(battle_path("stage/PlayerSelection.tsv"), "r");
         if (!file) {
             return 15;
         }
@@ -636,14 +649,13 @@ int verify_roster(void *library, const struct battle_images *images, void *unit_
     printf("REUSE npc_user_store_ready\n");
     fflush(0);
     struct deployment deployment = create_initializer(library, images, unit_repository, master_repository, store,
-                                                       load_player ? &selection : 0);
+                                                       load_player ? &selection : 0, custom_formation);
     if (!deployment.initializer) {
         return 15;
     }
     deployment.session.stage = stage_expected;
     deployment.session.stage_terrain = terrain_type;
-    deployment.session.unit_count = stage_expected->npc_count + stage_expected->gimmick_count +
-        (load_player ? FIXTURE_PLAYER_UNITS : 0);
+    deployment.session.unit_count = stage_expected->npc_count + stage_expected->gimmick_count;
     if (load_player) {
         deployment.session.stage_initializer = create_stage_initializer(library, images, &deployment.session,
                                                                         master_repository);
@@ -657,7 +669,7 @@ int verify_roster(void *library, const struct battle_images *images, void *unit_
     void *unused = 0;
     void *initializer_class = object_class(deployment.initializer);
     struct player_slot player_slots[FIXTURE_PLAYER_UNITS] = {0};
-    const int custom_formation = load_player && uses_custom_formation();
+    int player_count = 0;
     if (load_player) {
         void *player_args[] = {deployment.formation, scene, map, &terrain_type, &challenge_id};
         printf("REUSE player_setup_enter\n");
@@ -666,10 +678,12 @@ int verify_roster(void *library, const struct battle_images *images, void *unit_
             return 16;
         }
         printf("REUSE player_setup_return\n");
-        if (!check_player_units(library, images, unit_repository, &deployment, master_stage,
-                                player_slots, custom_formation)) {
+        player_count = check_player_units(library, images, unit_repository, &deployment, master_stage,
+                                          player_slots, custom_formation, expected_supporters);
+        if (!player_count) {
             return 17;
         }
+        deployment.session.unit_count += player_count;
     }
     void *npc_args[] = {scene, map, &terrain_type, reinforcements, &challenge_id};
     printf("REUSE npc_setup_enter\n");
@@ -691,7 +705,7 @@ int verify_roster(void *library, const struct battle_images *images, void *unit_
         return 20;
     }
     if (load_player && !initialize_map_root(library, images, &deployment.session, scene, map,
-                                          player_slots, custom_formation)) {
+                                          player_slots, player_count, custom_formation)) {
         return 18;
     }
     if (load_opening && !open_battle_turn(library, images, &deployment.session)) {

@@ -8,7 +8,7 @@ from prepare_stage import ARTIFACTS, BASE_STAGE_DIR
 if not all((BASE_STAGE_DIR / name).is_file() for name in ('master_database.bytes', 'PlayerDatabase.bytes')):
     raise unittest.SkipTest('Requires the original local deployment fixtures')
 
-from formation import (BASE_MASTER, catalog_for, default_team, load_sortie, load_team,
+from formation import (BASE_MASTER, catalog_for, default_team, encode_team, load_sortie, load_team,
                        master_for_stage, packed_tables, save_team, team_preview, validation_errors, write_player_inputs)
 from prepare_demo_formation import prepare_demo_formation
 from stage_catalog import StageChoice
@@ -78,6 +78,42 @@ class FormationTests(unittest.TestCase):
                 self.assertEqual(load_team(source), self.team)
         with self.assertRaises(ValueError):
             load_team(BytesIO(b'{"version": 1, "forces": []}'))
+
+    def test_empty_slots_round_trip_and_are_omitted_from_player_tables(self):
+        import msgpack
+
+        invalid_slots = {error[:2] for error in validation_errors(self.team, self.catalog, self.space)}
+        kept_force, kept_slot = next(
+            (force, slot) for force in (1, 0) for slot in reversed(range(5))
+            if (force + 1, slot + 1) not in invalid_slots
+            and slot < self.catalog.stages[self.space][21 + force])
+        kept_member = self.team[kept_force].members[kept_slot]
+        for force_index, force in enumerate(self.team):
+            force.supporter = 0
+            for slot, member in enumerate(force.members):
+                if (force_index, slot) != (kept_force, kept_slot):
+                    member.unit = 0
+                    member.pilot = kept_member.pilot
+        self.assertEqual(validation_errors(self.team, self.catalog, self.space), [])
+        self.assertEqual(load_team(BytesIO(encode_team(self.team))), self.team)
+
+        with TemporaryDirectory(dir=ARTIFACTS) as scratch:
+            directory = Path(scratch) / 'formation'
+            write_player_inputs(directory, self.team, self.space, self.master)
+            db = {key: msgpack.unpackb(data, raw=False)
+                  for key, data in packed_tables(directory / 'PlayerDatabase.bytes')}
+            self.assertEqual(len(db['user_unit']), 1)
+            self.assertEqual(len(db['user_character']), 1)
+            self.assertEqual(len(db['user_group_formation_unit']), 1)
+            self.assertEqual(db['user_supporter'], [])
+            self.assertEqual(db['user_group_formation_supporter'], [])
+            self.assertEqual((directory / 'CustomFormation.enabled').read_text().strip(), '0')
+            row = (directory / 'PlayerExpected.tsv').read_text().split()
+            self.assertEqual(list(map(int, row[:2])), [kept_force, kept_slot + 1])
+
+        kept_member.unit = 0
+        self.assertEqual(validation_errors(self.team, self.catalog, self.space),
+                         [(0, 0, '请在关卡可出击的槽位编入至少一台机体')])
 
     def test_sortie_round_trip_with_floor_and_legacy_team(self):
         with TemporaryDirectory(dir=ARTIFACTS) as scratch:

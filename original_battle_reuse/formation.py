@@ -387,6 +387,10 @@ class FormationCatalog:
     def mecha_koma(self, unit):
         return self.units[unit][4] if unit in self.units else ''
 
+    def unit_role(self, identifier):
+        row = self.units.get(identifier)
+        return row[2] if row else 0
+
     def pilot_role(self, identifier):
         row = self.pilots.get(identifier)
         return row[12] if row else 0
@@ -859,18 +863,22 @@ def formation_from_snapshot(snapshot, local_team):
 def validation_errors(team, catalog, stage_id=None):
     """Return (force, slot, reason). Slot 0 denotes the force's supporter."""
     stage = catalog.stages.get(stage_id)
-    pilots = Counter(member.pilot for force in team for member in force.members)
+    pilots = Counter(member.pilot for force in team for member in force.members if member.unit)
     errors = []
     if stage_id is not None and stage is None:
         return [(0, 0, '缺少该关卡的原版出击数据')]
+    has_sortie_unit = False
     for force_number, force in enumerate(team, 1):
-        if force.supporter not in catalog.supporters:
-            errors.append((force_number, 0, '支援人员在当前关卡资源中不可用'))
-        elif not 1 <= force.supporter_level <= catalog.supporter_max_level(force.supporter):
-            cap = catalog.supporter_max_level(force.supporter)
-            errors.append((force_number, 0, f'支援人员等级须在 1–{cap} 之间'))
+        if force.supporter:
+            if force.supporter not in catalog.supporters:
+                errors.append((force_number, 0, '支援人员在当前关卡资源中不可用'))
+            elif not 1 <= force.supporter_level <= (cap := catalog.supporter_max_level(force.supporter)):
+                errors.append((force_number, 0, f'支援人员等级须在 1–{cap} 之间'))
         sortie_count = stage[20 + force_number] if stage else 5
         for slot, member in enumerate(force.members, 1):
+            if not member.unit:
+                continue
+            has_sortie_unit |= slot <= sortie_count
             failures = []
             unit, pilot = catalog.units.get(member.unit), catalog.pilots.get(member.pilot)
             if not unit or not unit[15]:
@@ -919,6 +927,8 @@ def validation_errors(team, catalog, stage_id=None):
                     failures.extend(catalog.restriction_failures(stage, force_number, slot, unit, pilot))
             if failures:
                 errors.append((force_number, slot, '、'.join(failures)))
+    if not has_sortie_unit:
+        errors.append((0, 0, '请在关卡可出击的槽位编入至少一台机体'))
     return errors
 
 
@@ -948,6 +958,8 @@ def write_player_inputs(directory, team, stage, master, *, saved_supporters=None
     expected = []
     for force, slot, idx in catalog.group_slots[group_id]:
         member = team[force - 1].members[slot - 1]
+        if not member.unit:
+            continue
         form = catalog.sortie_form(member, stage) or member.unit
         instance = original_slots[idx][2]
         old_unit = original_units[instance]
@@ -975,6 +987,8 @@ def write_player_inputs(directory, team, stage, master, *, saved_supporters=None
         expected.append(f'{force - 1}\t{slot}\t{instance}\t{member.pilot}\t{form}\n')
     for force, _, idx in catalog.group_supporters[group_id]:
         row = team[force - 1]
+        if not row.supporter:
+            continue
         instance = supporter_slots[idx][2]
         old = original_supporters[instance]
         if saved_supporters is None:
@@ -996,4 +1010,4 @@ def write_player_inputs(directory, team, stage, master, *, saved_supporters=None
                          {name: msgpack.packb(rows, use_bin_type=True) for name, rows in tables.items()})
     (directory / 'PlayerSelection.tsv').write_bytes((BASE_STAGE_DIR / 'PlayerSelection.tsv').read_bytes())
     (directory / 'PlayerExpected.tsv').write_text(''.join(expected), encoding='ascii')
-    (directory / 'CustomFormation.enabled').touch()
+    (directory / 'CustomFormation.enabled').write_text(f"{len(tables['user_supporter'])}\n", encoding='ascii')

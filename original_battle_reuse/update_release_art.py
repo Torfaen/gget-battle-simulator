@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 from shutil import copyfileobj
 from tempfile import TemporaryDirectory
+from time import sleep
+from urllib.error import URLError
 from urllib.request import urlopen
 from zipfile import BadZipFile, ZipFile
 
@@ -15,7 +17,7 @@ from prepare_android import ARTIFACTS, digest
 DESCRIPTOR = 'battle_ui_assets/art-update.json'
 ROSTER_DESCRIPTOR = 'battle_ui_assets/roster-update.json'
 REPOSITORY = 'Torfaen/gget-battle-simulator-resources'
-ART_PATH = re.compile(r'(?:battle_ui_assets/(?:pilot|supporter)_portraits/[A-Za-z0-9_]+\.png|'
+ART_PATH = re.compile(r'(?:battle_ui_assets/(?:pilot|supporter|unit)_portraits/[A-Za-z0-9_]+\.png|'
                       r'idle_koma/[A-Za-z0-9_]+/(?:front|back|left|right)\.png|idle_koma/unit_index\.json|'
                       r'battle_ui_assets/maps/[0-9]+(?:\.json|(?:-camera)?\.webp)|'
                       r'roster_update/(?:(?:base|updated|OctoCatalog)\.bytes|'
@@ -56,9 +58,16 @@ def download_pack(tag, asset, checksum, cache, scratch):
         return path
     pending = scratch / asset
     url = f'https://github.com/{REPOSITORY}/releases/download/{tag}/{asset}'
-    print(f'Downloading artwork update {asset}', flush=True)
-    with urlopen(url, timeout=25) as response, pending.open('wb') as output:
-        copyfileobj(response, output, length=1024 * 1024)
+    for attempt in range(1, 4):
+        print(f'Downloading resource pack {asset} (attempt {attempt}/3)', flush=True)
+        try:
+            with urlopen(url, timeout=25) as response, pending.open('wb') as output:
+                copyfileobj(response, output, length=1024 * 1024)
+            break
+        except (URLError, HTTPException, TimeoutError, ConnectionError):
+            if attempt == 3:
+                raise
+            sleep(attempt)
     if not matches(pending, checksum):
         raise ValueError(f'Artwork archive SHA-256 mismatch: {asset}')
     pending.replace(path)

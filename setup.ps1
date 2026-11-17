@@ -191,6 +191,32 @@ function Install-ResourcePackages([string]$Python) {
     Set-Content -LiteralPath $portraitMarker -Value $resourcePackages[$name] -Encoding ASCII
 }
 
+function Cache-BundledUpdatePacks {
+    $bundled = Join-Path $project 'resource-packages\updates'
+    if (-not (Test-Path -LiteralPath $bundled -PathType Container)) { return }
+    $cache = Join-Path $artifacts 'art-update-cache'
+    foreach ($descriptor in @('art-update.json', 'roster-update.json')) {
+        $path = Join-Path $artifacts "battle_ui_assets\$descriptor"
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $update = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($pack in $update.packs) {
+            if ($pack.asset -notmatch '^[A-Za-z0-9_-]+\.zip$' -or $pack.sha256 -notmatch '^[a-f0-9]{64}$') { continue }
+            $source = Join-Path $bundled $pack.asset
+            $target = Join-Path $cache $pack.asset
+            if ((Test-FileHash $target $pack.sha256) -or -not (Test-FileHash $source $pack.sha256)) { continue }
+            Write-Step "Using bundled update pack $($pack.asset)"
+            $null = New-Item -Path $cache -ItemType Directory -Force
+            $pending = "$target.part"
+            try {
+                Copy-Item -LiteralPath $source -Destination $pending -Force
+                Move-Item -LiteralPath $pending -Destination $target -Force
+            } finally {
+                if (Test-Path -LiteralPath $pending -PathType Leaf) { Remove-Item -LiteralPath $pending }
+            }
+        }
+    }
+}
+
 function Initialize-Qemu([string]$Python) {
     $kernel = Join-Path $artifacts 'kernel'
     $manifest = Join-Path $kernel 'manifest.json'
@@ -265,6 +291,7 @@ try {
     } else {
         Write-Step 'Update check failed; starting the bundled program'
     }
+    Cache-BundledUpdatePacks
     $scripts = Join-Path $runtime 'original_battle_reuse'
     $requirements = Join-Path $runtime 'requirements-runtime.txt'
     $requirementsHash = Get-Sha256 $requirements

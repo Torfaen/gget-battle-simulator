@@ -395,6 +395,10 @@ class FormationCatalog:
         row = self.units.get(identifier)
         return row[2] if row else 0
 
+    def pilot_resource(self, identifier):
+        row = self.pilots.get(identifier)
+        return row[2] if row else ''
+
     def pilot_role(self, identifier):
         row = self.pilots.get(identifier)
         return row[12] if row else 0

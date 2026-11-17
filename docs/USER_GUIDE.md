@@ -1,10 +1,10 @@
 # SD 高达 G 世代 永恒 · 战斗模拟使用说明
 
-本文以 v0.1.2 为例。截图使用本地测试编队，关卡为永恒之路 Hard「机动战士高达」。
+本文适用于 v0.1.3。截图使用本地测试编队，关卡为永恒之路 Hard「机动战士高达」。
 
 ## 1. 安装与启动
 
-在 Windows x64 电脑上下载轻量包或全量包，解压后双击 `setup.cmd`。轻量包首次运行会下载基础资源，全量包已带基础资源。两种版本都会在打开窗口前检查热更新，并安装缺少的依赖。[GitHub 发布页](https://github.com/Torfaen/gget-battle-simulator/releases/tag/v0.1.2)
+在 Windows x64 电脑上下载轻量包或全量包，解压后双击 `setup.cmd`。轻量包首次运行会下载所需资源，全量包已带基础资源与发布时的资源更新。两种版本都会在打开窗口前检查热更新，并安装缺少的依赖。[GitHub 发布页](https://github.com/Torfaen/gget-battle-simulator/releases/tag/v0.1.3)
 
 启动器会优先使用可连接的 MuMu，否则配置 QEMU。想明确使用 QEMU，可以在程序目录运行 `.\setup.cmd -Backend QEMU`。
 

@@ -1,7 +1,9 @@
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
 from prepare_stage import ARTIFACTS, BASE_STAGE_DIR
 
@@ -147,6 +149,23 @@ class FormationTests(unittest.TestCase):
         self.assertEqual(values['战斗力'], (3903, 3903))
         low = {name: (value, base) for name, value, base in self.catalog.pilot_numbers(1110000100, 1)}
         self.assertEqual(low['反应'], (120, 120))
+
+    def test_battle_portraits_use_each_pilot_id_for_same_name_variants(self):
+        from battle_ui import BattleWindow
+
+        pilots = (1500000500, 1501002601)
+        self.assertEqual(*(self.catalog.name('pilot', pilot) for pilot in pilots))
+        images = {
+            'pilot_portraits/g5000c00500.png': 'defense-portrait',
+            'pilot_portraits/g5010c02601.png': 'support-portrait',
+            'pilots/1001000100.png': 'original-thumbnail',
+        }
+        view = SimpleNamespace(small_image=Mock(side_effect=lambda filename, size: images.get(filename, '')))
+        with patch('battle_ui.current_catalog', return_value=self.catalog), patch('battle_ui.ImageTk', object()):
+            self.assertEqual(BattleWindow.pilot_image(view, pilots[0], 54), 'defense-portrait')
+            self.assertEqual(BattleWindow.pilot_image(view, pilots[1], 35), 'support-portrait')
+            self.assertEqual(BattleWindow.pilot_image(view, 1001000100, 54), 'original-thumbnail')
+            self.assertEqual(BattleWindow.pilot_image(view, 0, 54), '')
 
     def test_supporter_values_and_condition_connectors(self):
         self.assertEqual(self.catalog.supporter_badges(1031000250, 3), '[空中用]/[水中用]')

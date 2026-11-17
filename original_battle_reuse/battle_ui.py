@@ -2152,7 +2152,7 @@ class BattleWindow:
                         state = f'客军 · {state}'
                 elif unit.side == 4:
                     state = '友军 · 自动行动'
-                card.update_unit(unit, self.pilot_caption(unit), self.small_image(f'pilots/{unit.character}.png', 54),
+                card.update_unit(unit, self.pilot_caption(unit), self.pilot_image(unit.character, 54),
                                  self.idle_image(unit, (48, 48), 'front'), state, predicted.get(unit.number),
                                  received.get(unit.number), energy=self.unit_energy(unit), en_cost=en_costs.get(unit.number))
                 if self.ready and not self.confirming_attack and self.map_weapon is None and self.skill_selection is None:
@@ -2944,6 +2944,17 @@ class BattleWindow:
                 cache[key] = ''
         return cache[key]
 
+    def pilot_image(self, identifier, size):
+        if not identifier or ImageTk is None:
+            return ''
+        if thumbnail := self.small_image(f'pilots/{identifier}.png', size):
+            return thumbnail
+        try:
+            resource = current_catalog().pilot_resource(identifier)
+        except (OSError, ValueError, KeyError):
+            return ''
+        return self.small_image(f'pilot_portraits/{resource}.png', size) if resource else ''
+
     def unit_name(self, number):
         unit = self.units.get(number)
         return f'#{number} {unit.name}' if unit else f'单位 {number}'
@@ -2985,7 +2996,7 @@ class BattleWindow:
             damage = self.battle_received.get(number, (self.forecast_damage.get(number, (0, 0, 0, 0, 0))[3], 0))[0]
             cost = f'\n−{damage:,} HP' if role in ('defense', 'attack_defense') and damage else ''
             color = BG if not enabled else '#7a3d25' if unit.side in (2, 3, 5, 6) else '#244d74'
-            face = self.small_image(f'pilots/{unit.character}.png', 35) or self.idle_image(unit, (35, 35), 'front')
+            face = self.pilot_image(unit.character, 35) or self.idle_image(unit, (35, 35), 'front')
             tile = tk.Frame(self.support_slots, bg=color, width=91, height=90)
             tile.grid(row=0, column=column, padx=(3, 0), pady=3)
             tile.pack_propagate(False)

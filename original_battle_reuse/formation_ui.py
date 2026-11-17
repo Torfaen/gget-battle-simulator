@@ -227,9 +227,7 @@ class FormationEditor(tk.Frame):
         return None
 
     def pilot_picture(self, identifier, *, request=False):
-        row = self.catalog.pilots.get(identifier)
-        if row and row[2]:
-            resource = row[2]
+        if resource := self.catalog.pilot_resource(identifier):
             target = PILOT_ASSETS / 'pilot_portraits' / f'{resource}.png'
             if target.is_file():
                 return target

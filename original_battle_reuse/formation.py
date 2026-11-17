@@ -11,7 +11,8 @@ from pathlib import Path
 import re
 from tempfile import NamedTemporaryFile
 
-from prepare_stage import ARTIFACTS, BASE_STAGE_DIR, STAGE, UPDATED_MASTER, pack_memory_database, stage_directory
+from prepare_stage import (ARTIFACTS, BASE_STAGE_DIR, ROSTER_UPDATE, STAGE, UPDATED_MASTER, master_with_roster,
+                           pack_memory_database, stage_directory)
 from battle_paths import OUTPUTS
 from stage_catalog import INVASION_STAGE_TYPE, UPDATED_LANGUAGES
 from formation_rules import (TERRAIN_CHANGE_TYPES, RatingTrait, additional_parameter, aggregate, change_record,
@@ -206,8 +207,11 @@ def level_for(levels, exp):
 @lru_cache(maxsize=1)
 def formation_names():
     names = {}
-    for path in (ARTIFACTS / 'battle_ui_assets/master_names.json', UPDATED_LANGUAGES,
-                 ARTIFACTS / 'battle_ui_assets/formation_names.json'):
+    sources = (ARTIFACTS / 'battle_ui_assets/master_names.json', UPDATED_LANGUAGES,
+               ARTIFACTS / 'battle_ui_assets/formation_names.json')
+    if any(master_with_roster(master) != master for master in (UPDATED_MASTER, BASE_MASTER)):
+        sources += (ROSTER_UPDATE / 'names.json',)
+    for path in sources:
         if path.is_file():
             for table, entries in json.loads(path.read_bytes()).items():
                 names.setdefault(table, {}).update(entries)
@@ -232,14 +236,14 @@ def exported_mech_assets():
 
 def master_for_stage(stage_id):
     if stage_id == STAGE or not UPDATED_MASTER.is_file():
-        return BASE_MASTER
+        return master_with_roster(BASE_MASTER)
     # Newly extracted stages use the updated tables. Older prepared stages may still pin the base.
     manifest = stage_directory(stage_id) / 'manifest.json'
     if manifest.is_file():
         base_manifest = json.loads((BASE_STAGE_DIR / 'manifest.json').read_bytes())
         if json.loads(manifest.read_bytes())['master_database']['sha256'] == base_manifest['master_database']['sha256']:
-            return BASE_MASTER
-    return UPDATED_MASTER
+            return master_with_roster(BASE_MASTER)
+    return master_with_roster(UPDATED_MASTER)
 
 
 class FormationCatalog:
@@ -779,7 +783,7 @@ def catalog_for(master):
 
 
 def current_catalog():
-    return catalog_for(UPDATED_MASTER if UPDATED_MASTER.is_file() else BASE_MASTER)
+    return catalog_for(master_with_roster(UPDATED_MASTER if UPDATED_MASTER.is_file() else BASE_MASTER))
 
 
 def read_player_database():

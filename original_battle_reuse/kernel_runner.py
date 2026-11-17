@@ -18,8 +18,8 @@ import threading
 from android_runner import build
 from prepare_android import ANDROID, ARTIFACTS, HERE, digest
 from prepare_kernel import BIN, DOWNLOADS, EXECUTABLE, KERNEL
-from prepare_stage import (STAGE, UPDATED_MASTER, UPDATED_OCTO, extract_additional_stage, pack_memory_database,
-                           stage_directory, stage_prepared)
+from prepare_stage import (ROSTER_UPDATE, STAGE, UPDATED_MASTER, UPDATED_OCTO, extract_additional_stage, master_with_roster,
+                           pack_memory_database, stage_directory, stage_prepared)
 from runtime_version import PINNED_LIBRARY_SHA256
 
 UNITY_SHA256 = '98230fdb63b66b23f8da21ccd04ad18df7e54fc01a01388b13dbbdacf34ba584'
@@ -190,7 +190,9 @@ def prepare_battle_files(mode, stage_id, trace_nuls=False, *, invasion_level=0, 
         directory = Path(tempfile.mkdtemp(prefix=f'{stage_id}-', dir=sessions))
     else:
         directory.mkdir(parents=True, exist_ok=True)
-    stage_expected = player_database = master_override = None
+    stage_expected = player_database = None
+    base_master = stage / 'master_database.bytes'
+    stage_master = battle_master = base_master
     player_source = stage
     if load_scene or mode == 'stage':
         manifest = json.loads(stage_manifest.read_text('utf-8'))
@@ -198,10 +200,10 @@ def prepare_battle_files(mode, stage_id, trace_nuls=False, *, invasion_level=0, 
             raise ValueError('The selected stage manifest has the wrong ID')
         if stage_id != STAGE:
             master_hash = manifest['master_database']['sha256']
-            if digest(stage / 'master_database.bytes') != master_hash:
+            if digest(base_master) != master_hash:
                 if not UPDATED_MASTER.is_file() or digest(UPDATED_MASTER) != master_hash:
                     raise ValueError('Prepared stage master database differs from the stage manifest')
-                master_override = UPDATED_MASTER
+                stage_master = UPDATED_MASTER
             if ((load_scene and digest(selected_stage / 'StageEntity.json') != manifest['stage_bundle']['entity_sha256']) or
                     (load_roster and digest(selected_stage / 'NpcExpected.tsv') != manifest['npc_expectations']['sha256'])):
                 raise ValueError('Prepared stage files differ from the stage manifest')
@@ -212,12 +214,13 @@ def prepare_battle_files(mode, stage_id, trace_nuls=False, *, invasion_level=0, 
         if invasion_level and floor is None:
             raise ValueError(f'Stage {stage_id} has no invasion level {invasion_level}')
         invasion_id = floor['id'] if floor else 0
+        battle_master = master_with_roster(stage_master)
         if load_player:
             if formation is not None:
                 from formation import write_player_inputs
 
                 player_source = directory / 'formation'
-                write_player_inputs(player_source, formation, stage_id, master_override or stage / 'master_database.bytes',
+                write_player_inputs(player_source, formation, stage_id, battle_master,
                                     saved_supporters=saved_supporters)
             if invasion_id:
                 player_database = invasion_player_database(player_source, directory, stage_id, invasion_id)
@@ -231,9 +234,13 @@ def prepare_battle_files(mode, stage_id, trace_nuls=False, *, invasion_level=0, 
     guest_mode = f'{mode}-trace' if trace_nuls else mode
     log = directory / f'{guest_mode}.log'
     inputs = {}
-    if master_override:
-        inputs['master_database.bytes'] = master_override
-        if load_exchange and UPDATED_OCTO.is_file():
+    if battle_master != base_master:
+        inputs['master_database.bytes'] = battle_master
+    if stage_master == UPDATED_MASTER and load_exchange:
+        octo = ROSTER_UPDATE / 'OctoCatalog.bytes' if battle_master != stage_master else UPDATED_OCTO
+        if octo.is_file():
+            inputs['OctoCatalog.bytes'] = octo
+        elif UPDATED_OCTO.is_file():
             inputs['OctoCatalog.bytes'] = UPDATED_OCTO
     if stage_expected is not None:
         inputs['StageExpected.tsv'] = stage_expected

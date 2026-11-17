@@ -22,7 +22,8 @@ from battle_save import (BATTLE_SAVES, MAX_TIMELINE, read_save_entry, read_saved
 from export_mumu_snapshot import DEFAULT_OUTPUT, export_snapshot
 from formation import (LAST_FORMATION, current_catalog, exported_mech_assets, formation_from_snapshot, formation_names,
                        load_sortie, save_team)
-from prepare_stage import extract_additional_stage, prepared_stage_ids, stage_prepared
+from prepare_stage import (ROSTER_UPDATE, UPDATED_MASTER, extract_additional_stage, master_with_roster,
+                           prepared_stage_ids, stage_prepared)
 from stage_catalog import EXPANSION_STAGES, LANGUAGES, ROAD_HARD, STAGE_NAMES, STORY_EXPANSION, StageChoice, load_catalog
 from android_bridge import prepare_mumu, remove_session
 
@@ -665,8 +666,16 @@ class BattleWindow:
             cached_names = {}
         for table, entries in cached_names.items():
             names[table] = entries | names.get(table, {})
+        additions = None
+        if master_with_roster(UPDATED_MASTER) != UPDATED_MASTER:
+            additions = ROSTER_UPDATE / 'stage_catalog.json'
+            try:
+                for table, entries in json.loads((ROSTER_UPDATE / 'names.json').read_bytes()).items():
+                    names.setdefault(table, {}).update(entries)
+            except (OSError, ValueError):
+                pass
         try:
-            self.stage_catalog = load_catalog(names)
+            self.stage_catalog = load_catalog(names, additions)
         except (OSError, ValueError, KeyError):
             self.stage_catalog = {}
             self.status.set('完整关卡目录读取失败，请检查原版关卡表')

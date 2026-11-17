@@ -23,7 +23,26 @@ STAGE = 90510005
 BASE_STAGE_DIR = ANDROID / 'rootfs/game/stage'
 UPDATED_MASTER = STAGE_UPDATE / 'master_database.bytes'
 UPDATED_OCTO = STAGE_UPDATE / 'OctoCatalog.bytes'
+ROSTER_UPDATE = ARTIFACTS / 'roster_update'
 sys.path[:0] = [str(ARTIFACTS / 'stage_env'), str(DATA_ROOT / '.resource_runtime')]
+
+
+@lru_cache(maxsize=2)
+def master_with_roster(master):
+    """Use a roster update built against this exact prepared runtime master."""
+    variants = {BASE_STAGE_DIR / 'master_database.bytes': 'base', UPDATED_MASTER: 'updated'}
+    variant = variants.get(master)
+    if variant:
+        target = ROSTER_UPDATE / f'{variant}.bytes'
+        try:
+            manifest = json.loads((ROSTER_UPDATE / 'manifest.json').read_bytes())
+            expected = manifest['masters'][variant]
+            if (manifest['schema'] == 1 and digest(master) == expected['base_sha256'] and
+                    digest(target) == expected['sha256']):
+                return target
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return master
 
 
 def stage_octo_catalog(backup, out, support):
@@ -227,7 +246,12 @@ def stage_tables():
 
 
 def stage_directory(stage_id):
-    return BASE_STAGE_DIR if stage_id == STAGE else ARTIFACTS / 'stages' / str(stage_id)
+    if stage_id == STAGE:
+        return BASE_STAGE_DIR
+    supplied = ROSTER_UPDATE / 'stages' / str(stage_id)
+    if (supplied / 'manifest.json').is_file() and master_with_roster(UPDATED_MASTER) != UPDATED_MASTER:
+        return supplied
+    return ARTIFACTS / 'stages' / str(stage_id)
 
 
 def stage_prepared(stage_id):
@@ -236,7 +260,8 @@ def stage_prepared(stage_id):
 
 
 def prepared_stage_ids():
-    additional = (ARTIFACTS / 'stages').glob('*/manifest.json')
+    additional = [*(ARTIFACTS / 'stages').glob('*/manifest.json'),
+                  *(ROSTER_UPDATE / 'stages').glob('*/manifest.json')]
     ids = {STAGE, *(int(path.parent.name) for path in additional if path.parent.name.isdecimal())}
     return sorted(stage_id for stage_id in ids if stage_prepared(stage_id))
 

@@ -1,4 +1,4 @@
-"""Install verified collections of new artwork from the public resource release."""
+"""Install verified artwork and roster packs from the public resource release."""
 
 from http.client import HTTPException
 import json
@@ -13,9 +13,13 @@ from prepare_android import ARTIFACTS, digest
 
 
 DESCRIPTOR = 'battle_ui_assets/art-update.json'
+ROSTER_DESCRIPTOR = 'battle_ui_assets/roster-update.json'
 REPOSITORY = 'Torfaen/gget-battle-simulator-resources'
 ART_PATH = re.compile(r'(?:battle_ui_assets/(?:pilot|supporter)_portraits/[A-Za-z0-9_]+\.png|'
-                      r'idle_koma/[A-Za-z0-9_]+/(?:front|back|left|right)\.png|idle_koma/unit_index\.json)')
+                      r'idle_koma/[A-Za-z0-9_]+/(?:front|back|left|right)\.png|idle_koma/unit_index\.json|'
+                      r'battle_ui_assets/maps/[0-9]+(?:\.json|(?:-camera)?\.webp)|'
+                      r'roster_update/(?:(?:base|updated|OctoCatalog)\.bytes|'
+                      r'(?:names|manifest|stage_catalog)\.json|stages/[0-9]+/(?:StageEntity\.json|NpcExpected\.tsv|manifest\.json)))')
 
 
 def matches(path, checksum):
@@ -89,8 +93,8 @@ def install_pack(artifacts, cache, tag, pack):
     return len(changed)
 
 
-def update_release_art(artifacts=ARTIFACTS):
-    path = under(artifacts, DESCRIPTOR)
+def install_descriptor(artifacts, relative, label):
+    path = under(artifacts, relative)
     if not path.is_file():
         return
     try:
@@ -98,6 +102,11 @@ def update_release_art(artifacts=ARTIFACTS):
         cache = under(artifacts, 'art-update-cache')
         cache.mkdir(exist_ok=True)
         count = sum(install_pack(artifacts, cache, descriptor['tag'], pack) for pack in descriptor['packs'])
-        print(f'Artwork update ready: {count} file(s) installed', flush=True)
+        print(f'{label} update ready: {count} file(s) installed', flush=True)
     except (OSError, HTTPException, ValueError, KeyError, TypeError, AttributeError, BadZipFile) as exc:
-        print(f'Artwork update pending; starting with the available files: {exc}', flush=True)
+        print(f'{label} update pending; starting with the available files: {exc}', flush=True)
+
+
+def update_release_art(artifacts=ARTIFACTS):
+    install_descriptor(artifacts, DESCRIPTOR, 'Artwork')
+    install_descriptor(artifacts, ROSTER_DESCRIPTOR, 'Roster')

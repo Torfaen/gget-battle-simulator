@@ -70,7 +70,7 @@ def build_catalog(tables, names):
     return {TOWER: tower, INVASION: invasion, **{category: {'': rows} for category, rows in road.items()}}
 
 
-def load_catalog(names):
+def load_catalog(names, additions=None):
     # Keep the 147 MB parsed table out of routine window startup.
     path = ARTIFACTS / 'stage_catalog.json'
     try:
@@ -98,5 +98,11 @@ def load_catalog(names):
             temporary.replace(path)
         finally:
             temporary.unlink(missing_ok=True)
+    if additions and additions.is_file():
+        for category, groups in json.loads(additions.read_bytes()).items():
+            for name, rows in groups.items():
+                target = catalog.setdefault(category, {}).setdefault(name, [])
+                by_stage = {tuple(row[1:]): row for row in (*target, *rows)}
+                target[:] = sorted(by_stage.values(), key=lambda row: row[0])
     return {category: {name: [StageChoice(*row) for row in rows] for name, rows in groups.items()}
             for category, groups in catalog.items()}

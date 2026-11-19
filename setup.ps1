@@ -9,6 +9,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
+# WinGet emits UTF-8 when piped. Match it and keep redirected Python output consistent.
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$env:PYTHONIOENCODING = 'utf-8'
 $project = [IO.Path]::GetFullPath($PSScriptRoot)
 $savedDataDir = Join-Path $project '.gget-data-dir'
 if (-not $DataDir) {
@@ -16,7 +19,7 @@ if (-not $DataDir) {
     $parent = Split-Path -Parent $project
     $shared = Join-Path $parent 'gget-battle-simulator-local'
     if (Test-Path -LiteralPath $savedDataDir -PathType Leaf) {
-        $saved = ([string](Get-Content -LiteralPath $savedDataDir -Raw)).Trim()
+        $saved = ([string](Get-Content -LiteralPath $savedDataDir -Raw -Encoding UTF8)).Trim()
         if ($saved -and (Test-Path -LiteralPath $saved -PathType Container)) { $DataDir = $saved }
     }
     if (-not $DataDir -and (Test-Path -LiteralPath $legacy -PathType Container)) { $DataDir = $legacy }

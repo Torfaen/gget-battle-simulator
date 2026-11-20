@@ -1,15 +1,17 @@
 """Apply published code and asset updates before launching the simulator."""
 
 import argparse
-from datetime import datetime
 import hashlib
 from http.client import HTTPException
 import json
 from pathlib import Path
 import re
 import shutil
+import sys
 from tempfile import TemporaryDirectory
 from urllib.request import urlopen
+
+from original_battle_reuse.download_progress import download_to_file, log_message
 
 PROGRAM = 'Torfaen/gget-battle-simulator'
 RESOURCES = 'Torfaen/gget-battle-simulator-resources'
@@ -79,11 +81,11 @@ def matches_program(path, checksum):
         return False
 
 
-def download_file(url, target, checksum, verify=matches):
-    with urlopen(url, timeout=20) as response, target.open('wb') as output:
-        shutil.copyfileobj(response, output, 1024 * 1024)
+def download_file(url, target, checksum, verify=matches, *, name=None):
+    name = name or target.name
+    download_to_file(url, target, name, timeout=20)
     if not verify(target, checksum):
-        raise ValueError(f'SHA-256 mismatch: {target.name}')
+        raise ValueError(f'SHA-256 mismatch: {name}')
 
 
 def prepare_program(project, store, code, previous, log):
@@ -106,7 +108,7 @@ def prepare_program(project, store, code, previous, log):
             else:
                 log(f'Downloading program file {name}')
                 download_file(f'https://raw.githubusercontent.com/{PROGRAM}/{code["commit"]}/{name}',
-                              temporary, checksum, verify=matches_program)
+                              temporary, checksum, verify=matches_program, name=name)
                 count += 1
             temporary.replace(target)
         finally:
@@ -141,6 +143,10 @@ def install_assets(project, data, store, resources, log):
 
 
 def startup(project, data, log):
+    def status(message):
+        print(message, file=sys.stderr, flush=True)
+        log(message)
+
     store = under(data, '.updates')
     store.mkdir(exist_ok=True)
     active = store / 'active.json'
@@ -162,7 +168,7 @@ def startup(project, data, log):
             remote = read_manifest(response.read(1024 * 1024 + 1))
         loaded.append(remote)
     except (OSError, HTTPException, ValueError, KeyError, AttributeError, TypeError) as exc:
-        log(f'Could not check online updates: {exc}')
+        status(f'Could not check online updates (updates.json): {exc}')
     # For the same revision, use the already validated local manifest first.
     revisions = {manifest['revision']: manifest for manifest in reversed(loaded)}
     for revision in sorted(revisions, reverse=True):
@@ -173,11 +179,12 @@ def startup(project, data, log):
             staged = active.with_suffix('.tmp')
             staged.write_text(json.dumps(manifest), encoding='utf-8')
             staged.replace(active)
-            log(f'Update revision {revision}: downloaded {code_count} program file(s), '
-                f'{asset_count} resource file(s)')
+            status(f'Update revision {revision}: downloaded {code_count} program file(s), '
+                   f'{asset_count} resource file(s)')
             return program
         except (OSError, HTTPException, ValueError) as exc:
-            log(f'Update revision {revision} failed: {exc}')
+            status(f'Update revision {revision} failed: {exc}')
+    status('Continuing with the available program files.')
     return previous
 
 
@@ -189,8 +196,7 @@ def main():
     args = parser.parse_args()
 
     def log(message):
-        with args.log.open('a', encoding='utf-8') as output:
-            output.write(f'[{datetime.now().isoformat(timespec="seconds")}] {message}\n')
+        log_message(message, args.log)
 
     print(json.dumps(str(startup(args.project.resolve(), args.data.resolve(), log))))
 

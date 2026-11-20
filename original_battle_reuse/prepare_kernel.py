@@ -1,7 +1,7 @@
 """Stage portable QEMU and an ARM64 Linux kernel inside the experiment directory."""
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import gzip
 import hashlib
 import json
@@ -11,9 +11,9 @@ import shutil
 import struct
 import subprocess
 import tarfile
-from urllib.request import urlopen
 
 from prepare_android import ARTIFACTS, digest
+from original_battle_reuse.download_progress import download_to_file, report_problem
 
 KERNEL = ARTIFACTS / 'kernel'
 DOWNLOADS = KERNEL / 'downloads'
@@ -40,11 +40,13 @@ def download(url, name, expected_sha512=None):
     if path.is_file() and (expected_sha512 is None or sha512(path) == expected_sha512):
         return path
     temporary = path.with_suffix(path.suffix + '.tmp')
-    with urlopen(url, timeout=40) as remote, temporary.open('wb') as output:
-        shutil.copyfileobj(remote, output)
-    if expected_sha512 and sha512(temporary) != expected_sha512:
-        raise ValueError(f'Package SHA-512 differs: {name}')
-    temporary.replace(path)
+    try:
+        download_to_file(url, temporary, name, timeout=40, inline=False)
+        if expected_sha512 and sha512(temporary) != expected_sha512:
+            raise ValueError(f'Package SHA-512 differs: {name}')
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
     return path
 
 
@@ -105,14 +107,22 @@ def main():
         parser.error('7z.exe is required to extract the Windows QEMU archive')
     for path in (DOWNLOADS, BIN):
         path.mkdir(parents=True, exist_ok=True)
+    report = {}
     with ThreadPoolExecutor(max_workers=2) as pool:
-        qemu = pool.submit(portable_qemu, seven_zip)
-        kernel = pool.submit(linux_image)
-        report = {'qemu': qemu.result(), 'linux': kernel.result()}
+        jobs = {pool.submit(portable_qemu, seven_zip): 'qemu', pool.submit(linux_image): 'linux'}
+        for job in as_completed(jobs):
+            name = jobs[job]
+            try:
+                report[name] = job.result()
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError) as exc:
+                label = 'QEMU' if name == 'qemu' else 'Linux kernel'
+                report_problem(f'{label} setup failed: {exc}')
+    if len(report) != len(jobs):
+        return 1
     (KERNEL / 'manifest.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     print(report['qemu']['version'])
     print('Linux', report['linux']['version'])
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

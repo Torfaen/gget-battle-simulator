@@ -5,15 +5,18 @@ import json
 from pathlib import Path, PurePosixPath
 import re
 from shutil import copyfileobj
-from urllib.request import urlopen
-from zipfile import ZipFile
+from zipfile import BadZipFile, ZipFile
+
+from original_battle_reuse.download_progress import download_to_file, report_problem
+from startup_update import matches
 
 
-def download_archive(url, target):
+def download_archive(url, target, checksum=None):
     temporary = target.with_suffix('.part')
     try:
-        with urlopen(url, timeout=45) as response, temporary.open('wb') as output:
-            copyfileobj(response, output, length=1024 * 1024)
+        download_to_file(url, temporary, target.name, timeout=45)
+        if checksum and not matches(temporary, checksum):
+            raise ValueError(f'SHA-256 mismatch: {target.name}')
         temporary.replace(target)
     finally:
         temporary.unlink(missing_ok=True)
@@ -40,12 +43,20 @@ def main():
     parser.add_argument('action', choices=('download', 'portraits'))
     parser.add_argument('source')
     parser.add_argument('destination', type=Path)
+    parser.add_argument('--sha256', help='expected SHA-256 of the downloaded archive')
     args = parser.parse_args()
-    if args.action == 'download':
-        download_archive(args.source, args.destination)
-    else:
-        install_portraits(Path(args.source), args.destination)
+    try:
+        if args.action == 'download':
+            download_archive(args.source, args.destination, args.sha256)
+        else:
+            install_portraits(Path(args.source), args.destination)
+    except (OSError, ValueError, KeyError, BadZipFile) as exc:
+        if args.action == 'portraits':
+            report_problem(f'Extracting {Path(args.source).name} failed: {exc}')
+        else:
+            report_problem(f'Download failed: {exc}')
+        return 1
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

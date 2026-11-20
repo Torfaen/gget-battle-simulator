@@ -46,6 +46,7 @@ if ($DataDir.TrimEnd([char]'\') -eq $project.TrimEnd([char]'\') -or
 $env:GGET_BATTLE_DATA_DIR = $DataDir
 $null = New-Item -Path $DataDir -ItemType Directory -Force
 $log = Join-Path $DataDir 'setup.log'
+$env:GGET_SETUP_LOG = $log
 $artifacts = Join-Path $DataDir 'original_battle_reuse\artifacts'
 $scripts = Join-Path $project 'original_battle_reuse'
 $releaseRepo = 'Torfaen/gget-battle-simulator-resources'
@@ -61,11 +62,22 @@ function Write-Step([string]$Message) {
     Add-Content -LiteralPath $log -Value "[$(Get-Date -Format s)] $Message" -Encoding UTF8
 }
 
+function Write-SetupFailure([string]$Message) {
+    $failure = "Setup failed: $Message"
+    Write-Host $failure -ForegroundColor Red
+    Write-Host "Log: $log"
+    try {
+        Add-Content -LiteralPath $log -Value "[$(Get-Date -Format s)] $failure" -Encoding UTF8
+    } catch {
+        Write-Host "Could not write the setup log: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
 function Invoke-Program([string]$Executable, [string[]]$ArgumentList, [string]$Step) {
     Write-Step $Step
     & $Executable @ArgumentList | Out-Host
     if ($LASTEXITCODE -ne 0) {
-        throw "$Step failed with exit code $LASTEXITCODE. See the console output and $log."
+        throw "$Step failed with exit code $LASTEXITCODE. See the previous output for details."
     }
 }
 
@@ -159,11 +171,11 @@ function Get-ResourceArchive([string]$Python, [string]$Name) {
     $helper = Join-Path $project 'setup_resources.py'
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         Write-Step "Downloading $Name (attempt $attempt of 3)"
-        & $Python -B $helper download $url $path | Out-Host
-        if ($LASTEXITCODE -eq 0 -and (Test-FileHash $path $resourcePackages[$Name])) { return $path }
+        & $Python -B $helper download $url $path --sha256 $resourcePackages[$Name] | Out-Host
+        if ($LASTEXITCODE -eq 0) { return $path }
         if ($attempt -lt 3) { Start-Sleep -Seconds $attempt }
     }
-    throw "Could not download a verified $Name from $url. Check your connection and rerun setup."
+    throw "Could not download and verify $Name after 3 attempts. See the previous output for the cause."
 }
 
 function Install-ResourcePackages([string]$Python) {
@@ -273,6 +285,7 @@ try {
 Push-Location -LiteralPath $project
 try {
     Write-Step "Using data directory $DataDir"
+    Write-Host "Log: $log"
     $venv = Join-Path $DataDir '.venv'
     $python = Join-Path $venv 'Scripts\python.exe'
     if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
@@ -332,8 +345,8 @@ try {
     }
     Write-Step "Setup complete. Backend: $selected"
 } catch {
-    Write-Step "Setup failed: $($_.Exception.Message)"
-    throw
+    Write-SetupFailure $_.Exception.Message
+    exit 1
 } finally {
     Pop-Location
     $setupLock.Dispose()
@@ -343,6 +356,9 @@ if (-not $NoLaunch) {
     Push-Location -LiteralPath $runtime
     try {
         Invoke-Program $python @('-B', (Join-Path $scripts 'battle_ui.py')) 'Opening the battle simulator'
+    } catch {
+        Write-SetupFailure $_.Exception.Message
+        exit 1
     } finally {
         Pop-Location
     }

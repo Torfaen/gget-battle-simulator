@@ -7,11 +7,10 @@ import re
 from shutil import copyfileobj
 from tempfile import TemporaryDirectory
 from time import sleep
-from urllib.error import URLError
-from urllib.request import urlopen
 from zipfile import BadZipFile, ZipFile
 
 from prepare_android import ARTIFACTS, digest
+from original_battle_reuse.download_progress import DownloadError, download_to_file, report_problem
 
 
 DESCRIPTOR = 'battle_ui_assets/art-update.json'
@@ -59,14 +58,13 @@ def download_pack(tag, asset, checksum, cache, scratch):
     pending = scratch / asset
     url = f'https://github.com/{REPOSITORY}/releases/download/{tag}/{asset}'
     for attempt in range(1, 4):
-        print(f'Downloading resource pack {asset} (attempt {attempt}/3)', flush=True)
         try:
-            with urlopen(url, timeout=25) as response, pending.open('wb') as output:
-                copyfileobj(response, output, length=1024 * 1024)
+            download_to_file(url, pending, f'{asset} (attempt {attempt}/3)', timeout=25)
             break
-        except (URLError, HTTPException, TimeoutError, ConnectionError):
+        except DownloadError as exc:
             if attempt == 3:
                 raise
+            report_problem(f'Download failed, will retry: {exc}')
             sleep(attempt)
     if not matches(pending, checksum):
         raise ValueError(f'Artwork archive SHA-256 mismatch: {asset}')
@@ -113,7 +111,7 @@ def install_descriptor(artifacts, relative, label):
         count = sum(install_pack(artifacts, cache, descriptor['tag'], pack) for pack in descriptor['packs'])
         print(f'{label} update ready: {count} file(s) installed', flush=True)
     except (OSError, HTTPException, ValueError, KeyError, TypeError, AttributeError, BadZipFile) as exc:
-        print(f'{label} update pending; starting with the available files: {exc}', flush=True)
+        report_problem(f'{label} update pending; starting with the available files: {exc}')
 
 
 def update_release_art(artifacts=ARTIFACTS):

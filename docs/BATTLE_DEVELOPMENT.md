@@ -45,7 +45,7 @@ python original_battle_reuse/kernel_runner.py interactive --stage 90510005
 
 ### 素材发布覆盖检查
 
-`tools/package_release_art.py` 会先用两个版本的发行主表和已准备关卡检查素材，再生成补丁 ZIP。检查覆盖可选驾驶员、支援人员、可选和关卡内机体的四方向棋子以及机体索引。原版资源索引中已有条目的素材必须可读取，缺图、空图或索引错误会阻止打包。原版资源索引缺项列在 `coverage-report.json`。
+`tools/package_release_art.py` 会先用两个版本的发行主表和已准备关卡检查素材，再生成补丁 ZIP。检查覆盖可选驾驶员、支援人员、战斗棋子及机体索引。普通单格机体只打包正面棋子，多格单位和飞行踏板搭载组合保留四向。原版资源索引中已有条目的素材必须可读取，缺图、空图或索引错误会阻止打包。原版资源索引缺项列在 `coverage-report.json`。
 
 ```powershell
 python -B tools/package_release_art.py --runtime 'D:\release\battle-runtime-data.zip' `

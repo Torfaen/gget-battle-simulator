@@ -18,9 +18,9 @@ from battle_paths import RESOURCE_CACHE
 from tools.analysis.compare_game_backups import cache_path
 from tools.extraction.decode_octo_koma import decode_item
 from extract_battle_map import transform_point
+from original_battle_reuse.koma_assets import DIRECTIONS, FRONT, directional_koma_ids
 
 
-DIRECTIONS = ('front', 'back', 'left', 'right')
 IDLE_DIR = ARTIFACTS / 'idle_koma'
 
 
@@ -79,7 +79,7 @@ def sprite_corners(sprite, renderer, chain, size):
     return [to_root(left, top), to_root(right, top), to_root(left, bottom)]
 
 
-def read_idle_sprites(index, caches, downloads=None, *, fetch=False):
+def read_idle_sprites(index, caches, downloads=None, *, fetch=False, directions=DIRECTIONS):
     name = index['name']
     paths = (cache_path(cache, index) for cache in caches)
     source = next((path for path in paths if path.is_file()), None)
@@ -94,7 +94,7 @@ def read_idle_sprites(index, caches, downloads=None, *, fetch=False):
 
     plain, _ = decode_item(contents, index)
     expected = {(name, 'standby', 'standby_ctrl', f'standby_{direction}', 'base'): direction
-                for direction in DIRECTIONS}
+                for direction in directions}
     sprites = {}
     for obj in UnityPy.load(plain).objects:
         if obj.type.name != 'SpriteRenderer':
@@ -110,8 +110,8 @@ def read_idle_sprites(index, caches, downloads=None, *, fetch=False):
             raise ValueError(f'Invalid standby SpriteRenderer for {name}/{direction}')
         sprite = pointer.read()
         sprites[direction] = (sprite, str(pointer.path_id), renderer, chain)
-    if sprites.keys() != set(DIRECTIONS):
-        raise ValueError(f'Missing standby sprites for {name}: {sorted(set(DIRECTIONS) - sprites.keys())}')
+    if sprites.keys() != set(directions):
+        raise ValueError(f'Missing standby sprites for {name}: {sorted(set(directions) - sprites.keys())}')
     return sprites
 
 
@@ -125,7 +125,7 @@ def load_sources(tables=None):
 
 
 def export_frames(out, koma_id, bundle, caches, directions, downloads=None, *, fetch=False, geometry=False):
-    sprites = read_idle_sprites(bundle, caches, downloads, fetch=fetch)
+    sprites = read_idle_sprites(bundle, caches, downloads, fetch=fetch, directions=directions)
     (out / koma_id).mkdir(parents=True, exist_ok=True)
     frames = {}
     for direction in directions:
@@ -201,15 +201,18 @@ def export_prepared_koma(out, fetch=False):
     mounted_families = {master[key]['MainUnitId'] for key in mounted_ids if master[key]['MechanismSetId']}
     mounted_koma = {unit_index[str(key)] for key in unit_ids if str(key) in unit_index and
                     (key in mounted_ids or master[key]['MainUnitId'] in mounted_families)}
+    directional = directional_koma_ids(((row['Id'], row['KomaResourceId'], row['OccupiedAreaId'], row['MainUnitId'])
+                                        for row in master.values()), mounted_ids)
     sfs_geometry = {}
     missing = set()
     for koma_id in sorted(set(unit_index.values())):
         mounted = koma_id in mounted_koma
-        has_frames = all((out / koma_id / f'{direction}.png').is_file() for direction in DIRECTIONS)
+        directions = DIRECTIONS if koma_id in directional else FRONT
+        has_frames = all((out / koma_id / f'{direction}.png').is_file() for direction in directions)
         if has_frames and not mounted:
             continue
         try:
-            frames = export_frames(out, koma_id, index[f'{koma_id}_standby'], caches, DIRECTIONS, downloads,
+            frames = export_frames(out, koma_id, index[f'{koma_id}_standby'], caches, directions, downloads,
                                    fetch=fetch, geometry=mounted)
             if mounted:
                 sfs_geometry[koma_id] = {direction: frame['corners'] for direction, frame in frames.items()}

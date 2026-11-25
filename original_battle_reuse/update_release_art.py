@@ -41,7 +41,8 @@ def read_descriptor(payload):
     seen = set()
     for pack in descriptor['packs']:
         if (not re.fullmatch(r'[A-Za-z0-9_-]+\.zip', pack['asset']) or
-                not re.fullmatch(r'[0-9a-f]{64}', pack['sha256']) or not pack['files']):
+                not re.fullmatch(r'[0-9a-f]{64}', pack['sha256']) or not pack['files'] or
+                not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]+', pack.get('tag', descriptor['tag']))):
             raise ValueError('Invalid art update pack')
         for path, checksum in pack['files'].items():
             if (not ART_PATH.fullmatch(path) or path in seen or
@@ -80,7 +81,7 @@ def install_pack(artifacts, cache, tag, pack):
         return 0
     with TemporaryDirectory(prefix='art-', dir=cache) as directory:
         scratch = Path(directory)
-        path = download_pack(tag, pack['asset'], pack['sha256'], cache, scratch)
+        path = download_pack(pack.get('tag', tag), pack['asset'], pack['sha256'], cache, scratch)
         queued = []
         with ZipFile(path) as archive:
             members = archive.namelist()

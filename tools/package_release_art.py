@@ -6,6 +6,7 @@ from pathlib import Path
 from zipfile import ZIP_STORED, ZipFile
 
 from check_release_art import check_release
+from original_battle_reuse.koma_assets import is_unused_koma_direction
 from update_release_art import ART_PATH, digest, read_descriptor
 
 
@@ -31,9 +32,11 @@ def main():
     if any(not ART_PATH.fullmatch(relative) for relative in files):
         raise SystemExit('Unexpected file in the artwork staging directory.')
 
+    directional = set(report['directional_koma'])
     packs = []
     for prefix, name in groups.items():
-        selected = {relative: path for relative, path in sorted(files.items()) if relative.startswith(prefix)}
+        selected = {relative: path for relative, path in sorted(files.items())
+                    if relative.startswith(prefix) and not is_unused_koma_direction(relative, directional)}
         if not selected:
             continue
         archive_path = args.out / name

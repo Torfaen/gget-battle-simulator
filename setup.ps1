@@ -51,8 +51,10 @@ $artifacts = Join-Path $DataDir 'original_battle_reuse\artifacts'
 $scripts = Join-Path $project 'original_battle_reuse'
 $releaseRepo = 'Torfaen/gget-battle-simulator-resources'
 $releaseTag = '2026.11.16'
+$uiReleaseTag = '2026.11.25-koma.1'
+$legacyUiChecksum = 'a3f112b221d3caa2128d30d318aec960a8c189640b448b6c3ef9aa0c35a79d40'
 $resourcePackages = [ordered]@{
-    'battle-ui-assets.zip' = 'a3f112b221d3caa2128d30d318aec960a8c189640b448b6c3ef9aa0c35a79d40'
+    'battle-ui-assets.zip' = 'd90072438f2def66421ba4867ca9cd58487ef091655c749bb3c0d7f90566b267'
     'battle-runtime-data.zip' = '9048c2cf0b98caceb5e4bf110c2f4a4bf93eb75ea03cc4df25f952292dc0286f'
     'gget-unit-portraits.zip' = 'df506d98e0e58e2ac6abbb517a2f03b17b13e912ed68e0a5953606112fd73c93'
 }
@@ -152,22 +154,25 @@ function Test-FileHash([string]$Path, [string]$Sha256) {
 
 function Get-ResourceArchive([string]$Python, [string]$Name) {
     $bundled = Join-Path $project 'resource-packages'
+    $isUi = $Name -eq 'battle-ui-assets.zip'
+    $tag = if ($isUi) { $uiReleaseTag } else { $releaseTag }
     foreach ($directory in @($ResourceArchiveDir, $bundled)) {
         if (-not $directory) { continue }
         $path = Join-Path $directory $Name
         if (Test-Path -LiteralPath $path -PathType Leaf) {
-            if (-not (Test-FileHash $path $resourcePackages[$Name])) {
+            if (-not (Test-FileHash $path $resourcePackages[$Name]) -and
+                -not ($isUi -and (Test-FileHash $path $legacyUiChecksum))) {
                 throw "Resource archive SHA-256 mismatch: $path"
             }
             Write-Step "Using local archive $Name"
             return $path
         }
     }
-    $cache = Join-Path $DataDir "packages\$releaseTag"
+    $cache = Join-Path $DataDir "packages\$tag"
     $path = Join-Path $cache $Name
     if (Test-FileHash $path $resourcePackages[$Name]) { return $path }
     $null = New-Item -Path $cache -ItemType Directory -Force
-    $url = "https://github.com/$releaseRepo/releases/download/$releaseTag/$Name"
+    $url = "https://github.com/$releaseRepo/releases/download/$tag/$Name"
     $helper = Join-Path $project 'setup_resources.py'
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         Write-Step "Downloading $Name (attempt $attempt of 3)"
